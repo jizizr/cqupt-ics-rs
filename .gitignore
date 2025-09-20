@@ -7,7 +7,6 @@ release/
 *.pdb
 
 # Cargo
-Cargo.lock
 .cargo/
 
 # IDE 和编辑器
