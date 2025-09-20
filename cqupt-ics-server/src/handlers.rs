@@ -143,7 +143,7 @@ async fn get_courses_handler(
     let response = wrapper.get_courses(&request).await?;
 
     // 根据格式返回不同内容
-    match params.format.as_deref().unwrap_or("json") {
+    match params.format.as_deref().unwrap_or("ics") {
         "ics" => {
             let generator = IcsGenerator::default();
             let ics_content = generator.generate(&response)?;
