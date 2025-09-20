@@ -1,0 +1,77 @@
+# Rust
+/target/
+**/target/
+debug/
+release/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+.cargo/
+
+# IDE 和编辑器
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量
+.env
+.env.local
+.env.production
+.env.development
+
+# 日志文件
+*.log
+logs/
+
+# 生成的ICS文件
+*.ics
+
+# 操作系统
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 测试覆盖率
+tarpaulin-report.html
+coverage/
+lcov.info
+
+# 临时文件
+*.tmp
+*.temp
+*~
+
+# 依赖目录
+node_modules/
+
+# 备份文件
+*.backup
+*.bak
+*.orig
+
+# 编译输出
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 文档生成
+/docs/target/
+/book/
+
+# Redis dumps
+dump.rdb
+
+# 本地数据库
+*.sqlite
+*.sqlite3
+*.db

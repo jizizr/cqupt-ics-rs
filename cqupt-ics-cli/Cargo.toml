@@ -1,0 +1,23 @@
+[package]
+name = "cqupt-ics-cli"
+description = "Command line interface for CQUPT ICS calendar generation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cqupt-ics"
+path = "src/main.rs"
+
+[dependencies]
+cqupt-ics-core = { path = "../cqupt-ics-core" }
+tokio.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
