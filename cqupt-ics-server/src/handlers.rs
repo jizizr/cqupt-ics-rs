@@ -3,17 +3,14 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
 };
+use cqupt_ics_core::{ics::IcsGenerator, location::LocationManager, prelude::*};
 use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-
-use cqupt_ics_core::{
-    ics::IcsGenerator, location::LocationManager, prelude::*, semester::SemesterDetector,
-};
 
 use crate::registry;
 
@@ -43,9 +40,8 @@ struct GetCoursesQuery {
     provider: String,
     username: String,
     password: String,
-    year: Option<u32>,
-    term: Option<u32>,
-    format: Option<String>, // "json" or "ics"
+    start_date: Option<String>, // 格式：YYYY-MM-DD，如 2024-03-04，可选
+    format: Option<String>,     // "json" or "ics"，默认为 "ics"
 }
 
 pub async fn create_app() -> Router {
@@ -89,83 +85,6 @@ async fn health_handler() -> impl IntoResponse {
     })
 }
 
-/// GET /courses 处理器
-async fn get_courses_handler(
-    Query(params): Query<GetCoursesQuery>,
-    State(_state): State<AppState>,
-) -> std::result::Result<Response, AppError> {
-    tracing::info!(
-        "GET /courses request: provider={}, username={}",
-        params.provider,
-        params.username
-    );
-
-    let username = params.username.clone(); // Clone to avoid move issues
-
-    // 自动检测或使用指定的学期
-    let (actual_year, actual_term) = match (params.year, params.term) {
-        (Some(year), Some(term)) => (year, term),
-        (year_opt, term_opt) => {
-            let (detected_year, detected_term, _) = SemesterDetector::detect_current();
-            let final_year = year_opt.unwrap_or(detected_year);
-            let final_term = term_opt.unwrap_or(detected_term);
-            tracing::info!("自动检测学期: {}-{}", final_year, final_term);
-            (final_year, final_term)
-        }
-    };
-
-    // 创建准确的学期对象
-    let semester = SemesterDetector::create_semester(actual_year, actual_term)
-        .map_err(|e| cqupt_ics_core::Error::Config(format!("创建学期失败: {}", e)))?;
-
-    // 创建请求对象
-    let request = CourseRequest {
-        credentials: Credentials {
-            username: params.username,
-            password: params.password,
-            extra: std::collections::HashMap::new(),
-        },
-        semester,
-        provider_config: ProviderConfig {
-            name: params.provider.clone(),
-            base_url: "".to_string(),
-            timeout: Some(30),
-            extra: std::collections::HashMap::new(),
-        },
-    };
-
-    // 创建providerwrapper
-    let wrapper = registry::get_provider(&params.provider).ok_or_else(|| {
-        cqupt_ics_core::Error::Config(format!("未知的provider: {}", params.provider))
-    })?;
-
-    // 获取课程数据
-    let response = wrapper.get_courses(&request).await?;
-
-    // 根据格式返回不同内容
-    match params.format.as_deref().unwrap_or("ics") {
-        "ics" => {
-            let generator = IcsGenerator::default();
-            let ics_content = generator.generate(&response)?;
-
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                "content-type",
-                "text/calendar; charset=utf-8".parse().unwrap(),
-            );
-            headers.insert(
-                "content-disposition",
-                format!("attachment; filename=\"cqupt-schedule-{}.ics\"", username)
-                    .parse()
-                    .unwrap(),
-            );
-
-            Ok((headers, ics_content).into_response())
-        }
-        _ => Ok(Json(response).into_response()),
-    }
-}
-
 /// 列出所有provider
 async fn list_providers_handler() -> impl IntoResponse {
     let providers: Vec<_> = registry::list_providers()
@@ -192,6 +111,72 @@ async fn list_locations_handler(State(state): State<AppState>) -> impl IntoRespo
         .cloned()
         .collect();
     Json(mappings)
+}
+
+/// 获取课程处理器
+async fn get_courses_handler(
+    Query(params): Query<GetCoursesQuery>,
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    use std::collections::HashMap;
+
+    let semester = params
+        .start_date
+        .map(|date_str| {
+            tracing::info!("使用指定的学期开始日期: {}", date_str);
+            Semester::from_date_str(&date_str)
+                .map_err(|e| cqupt_ics_core::Error::Config(format!("Invalid start date: {}", e)))
+        })
+        .transpose()?;
+    // 创建请求对象
+    let mut request = CourseRequest {
+        credentials: Credentials {
+            username: params.username.clone(),
+            password: params.password,
+            extra: HashMap::new(),
+        },
+        semester,
+        provider_config: ProviderConfig {
+            name: params.provider.clone(),
+            base_url: String::new(),
+            timeout: Some(30),
+            extra: HashMap::new(),
+        },
+    };
+
+    // 获取 provider
+    let provider = registry::get_provider(&params.provider).ok_or_else(|| {
+        cqupt_ics_core::Error::Config(format!("Provider '{}' not found", params.provider))
+    })?;
+
+    // 获取课程数据
+    let response = provider.get_courses(&mut request).await?;
+
+    // 根据格式参数返回不同内容，默认为 ics
+    match params.format.as_deref() {
+        Some("json") => {
+            // 返回JSON格式
+            Ok(Json(response).into_response())
+        }
+        _ => {
+            // 默认返回ICS格式
+            let options = IcsOptions {
+                calendar_name: Some(format!("CQUPT课程表-{}", params.username)),
+                include_teacher: true,
+                reminder_minutes: Some(15),
+                ..Default::default()
+            };
+            let generator = IcsGenerator::new(options);
+            let ics_content = generator.generate(&response)?;
+
+            Ok((
+                StatusCode::OK,
+                [("Content-Type", "text/calendar; charset=utf-8")],
+                ics_content,
+            )
+                .into_response())
+        }
+    }
 }
 
 /// 应用错误类型

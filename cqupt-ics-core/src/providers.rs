@@ -45,7 +45,7 @@ pub trait Provider: Send + Sync {
     /// Get courses using token
     async fn get_courses(
         &self,
-        request: &CourseRequest,
+        request: &mut CourseRequest,
         token: &Self::Token,
     ) -> Result<CourseResponse>;
 
@@ -71,11 +71,20 @@ pub trait ProviderWrapper: Send + Sync {
     async fn validate(&self, request: &CourseRequest) -> Result<()>;
 
     /// Get courses with caching
-    async fn get_courses(&self, request: &CourseRequest) -> Result<CourseResponse>;
+    async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse>;
 
     /// Logout
     async fn logout(&self) -> Result<()>;
 }
+
+pub trait IntoStatic: Sized {
+    fn into_static(self) -> &'static Self {
+        let p: &'static mut Self = Box::leak(Box::new(self));
+        &*p
+    }
+}
+
+impl<T: 'static> IntoStatic for T {}
 
 /// Wrapper implementation with caching
 #[derive(Clone)]
@@ -91,11 +100,6 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> Wrapper<P, C> {
             provider,
             cache_manager,
         }
-    }
-
-    /// Create wrapper with static reference
-    pub fn static_ref(provider: P, cache_manager: CacheManager<C>) -> &'static Self {
-        Box::leak(Box::new(Self::new(provider, cache_manager)))
     }
 
     /// Generate cache key for token
@@ -161,7 +165,7 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> ProviderWrapper for Wrapp
         Ok(())
     }
 
-    async fn get_courses(&self, request: &CourseRequest) -> Result<CourseResponse> {
+    async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse> {
         let token = self.get_or_create_token(request).await?;
         self.provider.get_courses(request, &token).await
     }

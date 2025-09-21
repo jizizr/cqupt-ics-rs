@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 
 /// 课程重复规则
@@ -47,15 +47,59 @@ pub struct Course {
 }
 
 /// 学期信息
+/// 简化设计：只需要学期开始日期，其他信息都可以推算
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Semester {
-    /// 学年
-    pub year: u32,
-    pub term: u32,
-    /// 学期开始日期
     pub start_date: DateTime<Utc>,
-    /// 学期结束日期
-    pub end_date: DateTime<Utc>,
+}
+
+impl Semester {
+    pub fn from_date_str(date_str: &str) -> Result<Self, String> {
+        use chrono::{Datelike, NaiveDate, TimeZone};
+
+        let naive_date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|e| {
+            format!(
+                "Invalid date format '{}': {}. Expected format: YYYY-MM-DD",
+                date_str, e
+            )
+        })?;
+
+        // 找到这一周的星期一
+        let days_since_monday = naive_date.weekday().num_days_from_monday();
+        let first_monday = naive_date - chrono::Duration::days(days_since_monday as i64);
+
+        // 转换为UTC时间（假设输入是本地时间）
+        let start_datetime = first_monday
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| "Failed to create datetime".to_string())?;
+
+        let start_date = chrono::Utc
+            .from_local_datetime(&start_datetime)
+            .single()
+            .ok_or_else(|| "Failed to convert to UTC".to_string())?;
+
+        Ok(Self { start_date })
+    }
+
+    /// 获取指定周数的星期一日期
+    pub fn get_week_start(&self, week: u32) -> DateTime<Utc> {
+        self.start_date + chrono::Duration::weeks(week as i64 - 1)
+    }
+
+    /// 获取学期开始的年份
+    pub fn year(&self) -> i32 {
+        self.start_date.year()
+    }
+
+    /// 推算学期类型（春季/秋季）
+    pub fn term_type(&self) -> &'static str {
+        let month = self.start_date.month();
+        if (2..=7).contains(&month) {
+            "春季"
+        } else {
+            "秋季"
+        }
+    }
 }
 
 /// 用户凭据
@@ -87,7 +131,7 @@ pub struct CourseRequest {
     /// 用户凭据
     pub credentials: Credentials,
     /// 学期信息
-    pub semester: Semester,
+    pub semester: Option<Semester>,
     /// provider配置
     pub provider_config: ProviderConfig,
 }

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use reqwest::{Client, ClientBuilder};
 
 use crate::{CourseRequest, CourseResponse, Error};
@@ -88,7 +88,9 @@ impl BaseProvider {
     pub fn empty_response(&self, request: &CourseRequest) -> CourseResponse {
         CourseResponse {
             courses: Vec::new(),
-            semester: request.semester.clone(),
+            semester: request.semester.clone().unwrap_or_else(|| crate::Semester {
+                start_date: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+            }),
             generated_at: Utc::now(),
         }
     }

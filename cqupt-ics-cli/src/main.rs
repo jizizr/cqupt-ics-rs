@@ -35,13 +35,9 @@ enum Commands {
         #[arg(short = 'P', long)]
         password: String,
 
-        /// 学年（可选，默认自动检测当前学期）
-        #[arg(short, long)]
-        year: Option<u32>,
-
-        /// 学期 (1=秋季学期, 2=春季学期)（可选，默认自动检测当前学期）
-        #[arg(short, long)]
-        term: Option<u32>,
+        /// 学期开始日期（格式：YYYY-MM-DD，如 2024-03-04）
+        #[arg(short = 's', long)]
+        start_date: Option<String>,
 
         /// 输出文件路径
         #[arg(short, long)]
@@ -130,8 +126,7 @@ async fn main() -> Result<()> {
             provider,
             username,
             password,
-            year,
-            term,
+            start_date,
             output,
             calendar_name,
             include_teacher,
@@ -141,8 +136,7 @@ async fn main() -> Result<()> {
                 provider_name: provider,
                 username,
                 password,
-                year,
-                term,
+                start_date,
                 output,
                 calendar_name,
                 include_teacher,

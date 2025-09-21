@@ -1,14 +1,13 @@
-use std::{collections::HashMap, time::Duration};
-
-use async_trait::async_trait;
-use chrono::{DateTime, Datelike, NaiveDateTime, TimeZone, Utc};
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::{
     Course, CourseRequest, CourseResponse, Error, RecurrenceRule, Result,
     prelude::*,
     providers::{BaseProvider, Provider},
 };
+use async_trait::async_trait;
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 
 const LESSON_TIMES: [(usize, usize); 11] = [
     (8 * 60, 8 * 60 + 45),        // 第1节: 08:00-08:45
@@ -160,15 +159,100 @@ impl RedrockProvider {
         })
     }
 
-    /// 获取课程表数据
-    async fn get_class_schedule(
+    /// 解析 version 字段来计算学期开始时间
+    /// version 格式如 "2025.9.8" 表示2025年9月8日为第一周开始
+    fn parse_semester_start_from_version(&self, version: &str) -> Result<DateTime<Utc>> {
+        let parts: Vec<&str> = version.split('.').collect();
+        if parts.len() != 3 {
+            return Err(self.base.custom_error(format!(
+                "Invalid version format: {}, expected YYYY.M.D",
+                version
+            )));
+        }
+
+        let year: i32 = parts[0].parse().map_err(|_| {
+            self.base
+                .custom_error(format!("Invalid year in version: {}", parts[0]))
+        })?;
+
+        let month: u32 = parts[1].parse().map_err(|_| {
+            self.base
+                .custom_error(format!("Invalid month in version: {}", parts[1]))
+        })?;
+
+        let day: u32 = parts[2].parse().map_err(|_| {
+            self.base
+                .custom_error(format!("Invalid day in version: {}", parts[2]))
+        })?;
+
+        let semester_start =
+            chrono::NaiveDate::from_ymd_opt(year, month, day).ok_or_else(|| {
+                self.base.custom_error(format!(
+                    "Invalid date from version: {}-{}-{}",
+                    year, month, day
+                ))
+            })?;
+
+        // 找到这一周的星期一
+        let days_since_monday = semester_start.weekday().num_days_from_monday();
+        let first_monday = semester_start - chrono::Duration::days(days_since_monday as i64);
+
+        let naive_midnight = first_monday
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| self.base.custom_error("Failed to create datetime"))?;
+        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+        let dt_cst = tz.from_local_datetime(&naive_midnight).single().unwrap();
+        Ok(dt_cst.to_utc())
+    }
+
+    fn get_semester_start_from_now_week(&self, now_week: u32) -> Result<DateTime<Utc>> {
+        if now_week == 0 {
+            return Err(self
+                .base
+                .custom_error("now_week is 0, cannot determine semester start".to_string()));
+        }
+
+        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+
+        let now_local = Utc::now().with_timezone(&tz);
+        let today_local = now_local.date_naive();
+
+        let days_since_monday = today_local.weekday().num_days_from_monday() as i64;
+
+        let weeks_back = (now_week - 1) as i64;
+
+        let total_days_back = days_since_monday + weeks_back * 7;
+
+        let start_day_local = today_local
+            .checked_sub_signed(Duration::days(total_days_back))
+            .ok_or_else(|| {
+                self.base
+                    .custom_error("date underflow when subtracting days".to_string())
+            })?;
+
+        let naive_midnight = start_day_local.and_hms_opt(0, 0, 0).ok_or_else(|| {
+            self.base
+                .custom_error("failed to create midnight".to_string())
+        })?;
+
+        let start_local = tz
+            .from_local_datetime(&naive_midnight)
+            .single()
+            .ok_or_else(|| {
+                self.base
+                    .custom_error("invalid local datetime for +08:00".to_string())
+            })?;
+
+        Ok(start_local.with_timezone(&Utc))
+    }
+
+    async fn get_class_schedule_data(
         &self,
         student_id: &str,
         token: &RedrockToken,
-    ) -> Result<(Vec<Course>, u32)> {
+    ) -> Result<RedrockResponse> {
         let url = format!("{}/magipoke-jwzx/kebiao", Self::API_ROOT);
 
-        // 构建请求数据
         let mut data = HashMap::new();
         data.insert(
             "stu_num",
@@ -192,16 +276,40 @@ impl RedrockProvider {
                 .custom_error(format!("HTTP {} error", response.status())));
         }
 
-        let redrock_response: RedrockResponse = response.json().await.map_err(|e| {
+        response.json().await.map_err(|e| {
             self.base
                 .custom_error(format!("Failed to parse response: {}", e))
-        })?;
+        })
+    }
+    /// 获取课程表数据
+    async fn get_class_schedule(
+        &self,
+        request: &mut CourseRequest,
+        token: &RedrockToken,
+    ) -> Result<(Vec<Course>, u32)> {
+        let redrock_response: RedrockResponse = self
+            .get_class_schedule_data(&request.credentials.username, token)
+            .await?;
 
-        // 转换为Course结构
+        // 确定学期开始时间，并获取 start_date 的引用
+        let start_date: &DateTime<Utc> = &request
+            .semester
+            .get_or_insert_with(|| {
+                let start_date = if redrock_response.now_week == 0 {
+                    self.parse_semester_start_from_version(&redrock_response.version)
+                        .expect("failed to parse semester start")
+                } else {
+                    self.get_semester_start_from_now_week(redrock_response.now_week)
+                        .expect("failed to get semester start")
+                };
+                Semester { start_date }
+            })
+            .start_date;
+
+        // 转换为 Course 结构
         let mut courses = Vec::new();
         for class in redrock_response.data {
-            // 创建带有重复规则的单个课程实例
-            let course = self.convert_class_to_course_with_recurrence(&class)?;
+            let course = self.convert_class_to_course_with_recurrence(&class, start_date)?;
             courses.push(course);
         }
 
@@ -251,7 +359,11 @@ impl RedrockProvider {
     }
 
     /// 将课程转换为带重复规则的Course结构
-    fn convert_class_to_course_with_recurrence(&self, class: &RedrockClass) -> Result<Course> {
+    fn convert_class_to_course_with_recurrence(
+        &self,
+        class: &RedrockClass,
+        base_date: &DateTime<Utc>,
+    ) -> Result<Course> {
         // 计算第一次上课时间（取第一个上课周）
         let first_week = *class
             .week
@@ -260,13 +372,14 @@ impl RedrockProvider {
 
         let (start_time, end_time) = self.calculate_class_time(
             first_week,
-            class.hash_day + 1, // hash_day是0开始的，需要+1转换为weekday
+            class.hash_day + 1,
             class.begin_lesson,
             class.period,
+            base_date,
         )?;
 
         // 创建重复规则
-        let recurrence = self.create_recurrence_rule(class)?;
+        let recurrence = self.create_recurrence_rule(class, base_date)?;
 
         let mut extra = HashMap::new();
         extra.insert("course_num".to_string(), class.course_num.clone());
@@ -298,7 +411,11 @@ impl RedrockProvider {
     }
 
     /// 创建重复规则
-    fn create_recurrence_rule(&self, class: &RedrockClass) -> Result<RecurrenceRule> {
+    fn create_recurrence_rule(
+        &self,
+        class: &RedrockClass,
+        base_date: &DateTime<Utc>,
+    ) -> Result<RecurrenceRule> {
         // 计算学期结束时间
         let last_week = *class
             .week
@@ -310,6 +427,7 @@ impl RedrockProvider {
             class.hash_day + 1,
             class.begin_lesson,
             class.period,
+            base_date,
         )?;
 
         // 检查是否是连续的周次
@@ -337,6 +455,7 @@ impl RedrockProvider {
                             class.hash_day + 1,
                             class.begin_lesson,
                             class.period,
+                            base_date,
                         )?;
                         exceptions.push(exception_start);
                     }
@@ -405,12 +524,10 @@ impl RedrockProvider {
         weekday: u32,
         begin_lesson: u32,
         period: u32,
+        base_date: &DateTime<Utc>,
     ) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
-        // 这里需要根据学期开始日期来计算具体日期
-        // 暂时使用当前日期作为基准，实际应该使用学期开始日期
-        let base_date = Utc::now().date_naive();
-
         // 计算该周的星期一
+        let base_date = base_date.date_naive();
         let days_since_monday = base_date.weekday().num_days_from_monday();
         let monday = base_date - chrono::Duration::days(days_since_monday as i64);
         let target_week_monday = monday + chrono::Duration::weeks((week_num - 1) as i64);
@@ -570,7 +687,7 @@ impl Provider for RedrockProvider {
 
     async fn get_courses(
         &self,
-        request: &CourseRequest,
+        request: &mut CourseRequest,
         token: &Self::Token,
     ) -> Result<CourseResponse> {
         // 验证token
@@ -584,13 +701,13 @@ impl Provider for RedrockProvider {
         );
 
         // 获取课程表数据
-        let (courses, current_week) = self
-            .get_class_schedule(&request.credentials.username, token)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get class schedule: {}", e);
-                e
-            })?;
+        let (courses, current_week) =
+            self.get_class_schedule(request, token)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get class schedule: {}", e);
+                    e
+                })?;
 
         // 获取考试安排
         let (exams, _) = self
@@ -602,7 +719,6 @@ impl Provider for RedrockProvider {
                 e
             })
             .unwrap_or_else(|_| (Vec::new(), 0));
-        println!("Fetched {} exams", exams.len());
         // 合并课程和考试
         let mut all_courses = courses;
         all_courses.extend(exams);
@@ -615,7 +731,7 @@ impl Provider for RedrockProvider {
 
         Ok(CourseResponse {
             courses: all_courses,
-            semester: request.semester.clone(),
+            semester: request.semester.clone().unwrap(),
             generated_at: Utc::now(),
         })
     }
@@ -631,7 +747,7 @@ impl Provider for RedrockProvider {
         Ok(())
     }
 
-    fn token_ttl(&self) -> Duration {
-        Duration::from_secs(3600 * 24 * 3)
+    fn token_ttl(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(3600 * 24 * 3)
     }
 }

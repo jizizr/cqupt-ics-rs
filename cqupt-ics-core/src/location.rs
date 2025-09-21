@@ -141,7 +141,9 @@ X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-TITLE=重庆邮电大学\\n崇文路2号
             .unwrap_or("29.530807,106.607617")
             .replace(',', ";");
 
+        // 统一换行为 CRLF 并确保 GEO 行以 CRLF 结尾，避免与后续字段粘连
         let custom_geo_crlf = custom_geo.replace('\n', "\r\n");
+        // 注意：不在前面添加 CRLF，避免与上一行之间产生空白行。
         format!("{}\r\nGEO:{}\r\n", custom_geo_crlf, geo_part)
     }
 

@@ -8,7 +8,6 @@ pub mod error;
 pub mod ics;
 pub mod location;
 pub mod providers;
-pub mod semester;
 pub mod types;
 
 // Re-export core types and error handling
@@ -17,7 +16,5 @@ pub use types::*;
 
 /// Commonly used items
 pub mod prelude {
-    pub use crate::{
-        Error, Result, cache::*, ics::*, location::*, providers::*, semester::*, types::*,
-    };
+    pub use crate::{cache::*, ics::*, location::*, providers::*, types::*};
 }

@@ -1,10 +1,6 @@
 use std::sync::OnceLock;
 
-use cqupt_ics_core::{
-    cache::CacheManager,
-    prelude::ProviderRegistry,
-    providers::{Wrapper, redrock::RedrockProvider},
-};
+use cqupt_ics_core::prelude::{redrock::RedrockProvider, *};
 
 use crate::cache::RedisCache;
 
@@ -18,10 +14,8 @@ pub(crate) async fn init_with_redis(redis_url: &str) -> Result<(), cqupt_ics_cor
         redis_url
     );
     let redis_cache = RedisCache::new(redis_url, Some("cqupt-ics".to_string())).await?;
-    p.register(Wrapper::static_ref(
-        RedrockProvider::new(),
-        CacheManager::new(redis_cache),
-    ));
+
+    p.register(Wrapper::new(RedrockProvider::new(), CacheManager::new(redis_cache)).into_static());
 
     REGISTRY.set(p).map_err(|_| {
         cqupt_ics_core::Error::Config("Failed to initialize provider registry".to_string())

@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use cqupt_ics_core::{
     cache::CacheManager,
-    prelude::ProviderRegistry,
+    prelude::{IntoStatic, ProviderRegistry},
     providers::{Wrapper, redrock::RedrockProvider},
 };
 
@@ -12,10 +12,13 @@ pub static REGISTRY: OnceLock<ProviderRegistry> = OnceLock::new();
 
 pub(crate) fn init() {
     let mut p = ProviderRegistry::new();
-    p.register(Wrapper::static_ref(
-        RedrockProvider::new(),
-        CacheManager::new(FileCache::with_default_dir("cqupt-ics").unwrap()),
-    ));
+    p.register(
+        Wrapper::new(
+            RedrockProvider::new(),
+            CacheManager::new(FileCache::with_default_dir("cqupt-ics").unwrap()),
+        )
+        .into_static(),
+    );
     REGISTRY
         .set(p)
         .unwrap_or_else(|_| panic!("Failed to initialize provider registry"));

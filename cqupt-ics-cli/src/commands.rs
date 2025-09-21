@@ -1,10 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use anyhow::Result;
-use chrono::Utc;
-use cqupt_ics_core::{
-    ics::IcsGenerator, location::LocationManager, prelude::*, semester::SemesterDetector,
-};
+use cqupt_ics_core::{ics::IcsGenerator, location::LocationManager, prelude::*};
 
 use crate::registry;
 
@@ -13,8 +10,7 @@ pub struct GenerateParams {
     pub provider_name: String,
     pub username: String,
     pub password: String,
-    pub year: Option<u32>,
-    pub term: Option<u32>,
+    pub start_date: Option<String>,
     pub output: Option<String>,
     pub calendar_name: Option<String>,
     pub include_teacher: bool,
@@ -23,50 +19,23 @@ pub struct GenerateParams {
 
 /// 生成课程表命令
 pub async fn generate_command(params: GenerateParams) -> Result<()> {
-    // 自动检测当前学期（如果未提供年份和学期）
-    let (actual_year, actual_term) = match (params.year, params.term) {
-        (Some(year), Some(term)) => {
-            // 用户手动指定了年份和学期
-            tracing::info!("使用用户指定的学期: {}-{}", year, term);
-            (year, term)
-        }
-        (year_opt, term_opt) => {
-            // 自动检测当前学期
-            let (detected_year, detected_term, semester_type) = SemesterDetector::detect_current();
-            let final_year = year_opt.unwrap_or(detected_year);
-            let final_term = term_opt.unwrap_or(detected_term);
-
-            tracing::info!(
-                "自动检测学期: {}-{} ({:?}), 最终使用: {}-{}",
-                detected_year,
-                detected_term,
-                semester_type,
-                final_year,
-                final_term
-            );
-            println!(
-                "自动检测当前学期: {}-{} ({:?})",
-                detected_year, detected_term, semester_type
-            );
-
-            (final_year, final_term)
-        }
-    };
-
     tracing::info!(
-        "开始生成课程表: provider={}, 用户={}, 学年={}, 学期={}",
+        "开始生成课程表: provider={}, 用户={}",
         params.provider_name,
         params.username,
-        actual_year,
-        actual_term
     );
 
-    // 创建准确的学期对象
-    let semester = SemesterDetector::create_semester(actual_year, actual_term)
-        .map_err(|e| anyhow::anyhow!("创建学期失败: {}", e))?;
+    let semester = params
+        .start_date
+        .map(|date_str| {
+            tracing::info!("使用指定的学期开始日期: {}", date_str);
+            Semester::from_date_str(&date_str)
+                .map_err(|e| anyhow::anyhow!("Invalid start date: {}", e))
+        })
+        .transpose()?;
 
     // 创建请求对象
-    let request = CourseRequest {
+    let mut request = CourseRequest {
         credentials: Credentials {
             username: params.username.clone(),
             password: params.password,
@@ -85,7 +54,7 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("未知的provider: {}", params.provider_name))?;
     // 获取课程数据
     println!("验证用户凭据...");
-    let response = provider.get_courses(&request).await?;
+    let response = provider.get_courses(&mut request).await?;
     println!("✓ 凭据验证成功");
     println!("✓ 成功获取 {} 门课程", response.courses.len());
     // 生成ICS文件
@@ -104,12 +73,10 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
     let ics_content = generator.generate(&response)?;
 
     // 确定输出文件名
-    let output_file = params.output.unwrap_or_else(|| {
-        format!(
-            "cqupt-schedule-{}-{}-{}.ics",
-            params.username, actual_year, actual_term
-        )
-    });
+    let start_date_str = response.semester.start_date.format("%Y-%m-%d").to_string();
+    let output_file = params
+        .output
+        .unwrap_or_else(|| format!("cqupt-schedule-{}-{}.ics", params.username, start_date_str));
 
     // 写入文件
     fs::write(&output_file, ics_content)?;
@@ -124,20 +91,13 @@ pub async fn validate_command(
     username: String,
     password: String,
 ) -> Result<()> {
-    tracing::info!("验证凭据: provider={}, 用户={}", provider_name, username);
-
     let request = CourseRequest {
         credentials: Credentials {
             username: username.clone(),
             password,
             extra: HashMap::new(),
         },
-        semester: Semester {
-            year: 2024,
-            term: 1,
-            start_date: Utc::now(),
-            end_date: Utc::now(),
-        },
+        semester: None,
         provider_config: ProviderConfig {
             name: provider_name.clone(),
             base_url: String::new(),
@@ -147,12 +107,11 @@ pub async fn validate_command(
     };
 
     let provider = registry::get_provider(&provider_name)
-        .ok_or_else(|| anyhow::anyhow!("未知的provider: {}", provider_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", provider_name))?;
 
-    // 获取课程数据
-    println!("验证用户凭据...");
+    // 尝试验证凭据
     provider.validate(&request).await?;
-    println!("凭据验证成功");
+    println!("✓ 凭据验证成功");
 
     Ok(())
 }

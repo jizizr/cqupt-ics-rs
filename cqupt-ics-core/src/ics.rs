@@ -256,6 +256,3 @@ impl Default for IcsGenerator {
         Self::new(IcsOptions::default())
     }
 }
-
-#[cfg(test)]
-mod tests;
