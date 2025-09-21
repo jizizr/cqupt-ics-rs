@@ -53,8 +53,13 @@ impl IcsGenerator {
     fn add_course_event(&self, ics_content: &mut String, course: &Course) -> Result<()> {
         let uid = Uuid::new_v4().to_string();
         let dtstamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-        let dtstart = course.start_time.format("%Y%m%dT%H%M%SZ").to_string();
-        let dtend = course.end_time.format("%Y%m%dT%H%M%SZ").to_string();
+
+        // 根据 ICS 标准，DateTime<FixedOffset> 应该转换为 UTC 格式
+        // 这样既符合标准，又充分利用了 FixedOffset 的时区信息
+        let dtstart_utc = course.start_time.to_utc();
+        let dtend_utc = course.end_time.to_utc();
+        let dtstart = dtstart_utc.format("%Y%m%dT%H%M%SZ").to_string();
+        let dtend = dtend_utc.format("%Y%m%dT%H%M%SZ").to_string();
 
         ics_content.push_str("BEGIN:VEVENT\r\n");
         ics_content.push_str(&format!("UID:{}\r\n", uid));
@@ -211,7 +216,9 @@ impl IcsGenerator {
         }
 
         if let Some(until) = recurrence.until {
-            rrule.push_str(&format!(";UNTIL={}", until.format("%Y%m%dT%H%M%SZ")));
+            // 根据 ICS 标准，UNTIL 必须与 DTSTART 使用相同格式
+            let until_utc = until.to_utc();
+            rrule.push_str(&format!(";UNTIL={}", until_utc.format("%Y%m%dT%H%M%SZ")));
         }
 
         if let Some(count) = recurrence.count {
@@ -241,9 +248,11 @@ impl IcsGenerator {
 
         // 添加例外日期
         for exception_date in &recurrence.exception_dates {
+            // 转换为 UTC 格式以保持一致性
+            let exception_utc = exception_date.to_utc();
             ics_content.push_str(&format!(
                 "EXDATE:{}\r\n",
-                exception_date.format("%Y%m%dT%H%M%SZ")
+                exception_utc.format("%Y%m%dT%H%M%SZ")
             ));
         }
 

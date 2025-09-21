@@ -6,7 +6,7 @@ use crate::{
     providers::{BaseProvider, Provider},
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
 const LESSON_TIMES: [(usize, usize); 11] = [
@@ -215,28 +215,26 @@ impl RedrockProvider {
         let tz = self.timezone();
 
         let now_local = Utc::now().with_timezone(&tz);
-        let today_local = now_local.date_naive();
-
-        let days_since_monday = today_local.weekday().num_days_from_monday() as i64;
+        let days_since_monday = now_local.weekday().num_days_from_monday() as i64;
 
         let weeks_back = (now_week - 1) as i64;
-
         let total_days_back = days_since_monday + weeks_back * 7;
 
-        let start_day_local = today_local
-            .checked_sub_signed(Duration::days(total_days_back))
+        // 计算学期开始的那天的午夜
+        let days_to_subtract = chrono::Duration::days(total_days_back);
+        let semester_start_day = now_local - days_to_subtract;
+
+        // 设置为那天的午夜 (00:00:00)
+        let start_local = semester_start_day
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
             .ok_or_else(|| {
                 self.base
-                    .custom_error("date underflow when subtracting days".to_string())
+                    .custom_error("failed to create midnight".to_string())
             })?;
 
-        let naive_midnight = start_day_local.and_hms_opt(0, 0, 0).ok_or_else(|| {
-            self.base
-                .custom_error("failed to create midnight".to_string())
-        })?;
-
         let start_local = tz
-            .from_local_datetime(&naive_midnight)
+            .from_local_datetime(&start_local)
             .single()
             .ok_or_else(|| {
                 self.base
@@ -314,7 +312,11 @@ impl RedrockProvider {
         // 转换为 Course 结构
         let mut courses = Vec::new();
         for class in redrock_response.data {
-            let course = self.convert_class_to_course_with_recurrence(&class, start_date)?;
+            let course = self.convert_class_to_course_with_recurrence(
+                &class,
+                start_date,
+                redrock_response.now_week,
+            )?;
             courses.push(course);
         }
 
@@ -322,7 +324,11 @@ impl RedrockProvider {
     }
 
     /// 获取考试安排
-    async fn get_exam_schedule(&self, student_id: &str) -> Result<(Vec<Course>, u32)> {
+    async fn get_exam_schedule(
+        &self,
+        student_id: &str,
+        semester_start: &DateTime<FixedOffset>,
+    ) -> Result<(Vec<Course>, u32)> {
         let url = format!("{}/magipoke-jwzx/examSchedule", Self::API_ROOT);
 
         let mut data = HashMap::new();
@@ -356,7 +362,7 @@ impl RedrockProvider {
         // 转换考试为Course结构
         let mut exams = Vec::new();
         for exam in exam_response.data {
-            let course = self.convert_exam_to_course(&exam)?;
+            let course = self.convert_exam_to_course(&exam, semester_start)?;
             exams.push(course);
         }
 
@@ -368,6 +374,7 @@ impl RedrockProvider {
         &self,
         class: &RedrockClass,
         base_date: &DateTime<FixedOffset>,
+        current_week: u32,
     ) -> Result<Course> {
         // 计算第一次上课时间（取第一个上课周）
         let first_week = *class
@@ -393,6 +400,7 @@ impl RedrockProvider {
         extra.insert("hash_day".to_string(), class.hash_day.to_string());
         extra.insert("begin_lesson".to_string(), class.begin_lesson.to_string());
         extra.insert("period".to_string(), class.period.to_string());
+        extra.insert("current_week".to_string(), current_week.to_string());
 
         Ok(Course {
             name: class.course.clone(),
@@ -490,11 +498,24 @@ impl RedrockProvider {
     }
 
     /// 将考试转换为Course结构
-    fn convert_exam_to_course(&self, exam: &RedrockExam) -> Result<Course> {
+    fn convert_exam_to_course(
+        &self,
+        exam: &RedrockExam,
+        semester_start: &DateTime<FixedOffset>,
+    ) -> Result<Course> {
         // 解析考试时间 - 结合日期和时间信息
-        let start_time =
-            self.parse_exam_time_with_date(&exam.begin_time, &exam.week, &exam.weekday)?;
-        let end_time = self.parse_exam_time_with_date(&exam.end_time, &exam.week, &exam.weekday)?;
+        let start_time = self.parse_exam_time_with_date(
+            &exam.begin_time,
+            &exam.week,
+            &exam.weekday,
+            semester_start,
+        )?;
+        let end_time = self.parse_exam_time_with_date(
+            &exam.end_time,
+            &exam.week,
+            &exam.weekday,
+            semester_start,
+        )?;
 
         let mut extra = HashMap::new();
         extra.insert("exam_type".to_string(), exam.exam_type.clone());
@@ -531,19 +552,16 @@ impl RedrockProvider {
         period: u32,
         base_date: &DateTime<FixedOffset>,
     ) -> Result<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
-        // 防御性编程：如果 base_date 不是周一，自动找到该周的周一
-        // base_date 已经是带时区的时间
-        let base_local_date = base_date.date_naive();
-
-        let semester_start_monday = if base_local_date.weekday() != chrono::Weekday::Mon {
-            let days_since_monday = base_local_date.weekday().num_days_from_monday();
-            base_local_date - chrono::Duration::days(days_since_monday as i64)
+        // 直接使用DateTime<FixedOffset>计算日期
+        let days_since_monday = base_date.weekday().num_days_from_monday();
+        let semester_start_monday = if base_date.weekday() != chrono::Weekday::Mon {
+            *base_date - chrono::Duration::days(days_since_monday as i64)
         } else {
-            base_local_date
+            *base_date
         };
         let target_week_monday =
             semester_start_monday + chrono::Duration::weeks((week_num - 1) as i64);
-        let class_date = target_week_monday + chrono::Duration::days((weekday - 1) as i64);
+        let class_date_base = target_week_monday + chrono::Duration::days((weekday - 1) as i64);
 
         if begin_lesson == 0 || begin_lesson > LESSON_TIMES.len() as u32 {
             return Err(self
@@ -559,28 +577,14 @@ impl RedrockProvider {
             start_minutes + (period * 45) as usize // 每节课45分钟
         };
 
-        let start_time = class_date
-            .and_hms_opt((start_minutes / 60) as u32, (start_minutes % 60) as u32, 0)
-            .ok_or_else(|| self.base.custom_error("Invalid start time"))?;
+        // 直接在DateTime<FixedOffset>基础上加时间
+        let start_dt = class_date_base
+            + chrono::Duration::hours((start_minutes / 60) as i64)
+            + chrono::Duration::minutes((start_minutes % 60) as i64);
 
-        let end_time = class_date
-            .and_hms_opt((end_minutes / 60) as u32, (end_minutes % 60) as u32, 0)
-            .ok_or_else(|| self.base.custom_error("Invalid end time"))?;
-
-        // 重庆时间为UTC+8
-        let tz = self.timezone();
-        let start_dt = tz
-            .from_local_datetime(&start_time)
-            .single()
-            .ok_or_else(|| {
-                self.base
-                    .custom_error("Failed to convert start time to UTC")
-            })?;
-
-        let end_dt = tz
-            .from_local_datetime(&end_time)
-            .single()
-            .ok_or_else(|| self.base.custom_error("Failed to convert end time to UTC"))?;
+        let end_dt = class_date_base
+            + chrono::Duration::hours((end_minutes / 60) as i64)
+            + chrono::Duration::minutes((end_minutes % 60) as i64);
 
         Ok((start_dt, end_dt))
     }
@@ -590,6 +594,7 @@ impl RedrockProvider {
         time_str: &str,
         week_str: &str,
         weekday_str: &str,
+        semester_start: &DateTime<FixedOffset>,
     ) -> Result<DateTime<FixedOffset>> {
         // 首先尝试原有的完整日期时间格式
         if let Ok(datetime) = self.parse_exam_time(time_str) {
@@ -624,27 +629,16 @@ impl RedrockProvider {
                 .custom_error(format!("Invalid weekday: {}", weekday_str))
         })?;
 
-        // 使用与课程相同的逻辑计算日期（假设学期开始时间）
-        // 这里使用一个假设的学期开始日期，实际应该从配置或其他地方获取
-        let base_date = chrono::NaiveDate::from_ymd_opt(2024, 3, 4) // 假设2024年春季学期开始
-            .ok_or_else(|| self.base.custom_error("Invalid base date"))?;
-
-        let days_since_monday = base_date.weekday().num_days_from_monday();
-        let monday = base_date - chrono::Duration::days(days_since_monday as i64);
+        // 使用实际的学期开始日期来计算考试日期
+        let days_since_monday = semester_start.weekday().num_days_from_monday();
+        let monday = *semester_start - chrono::Duration::days(days_since_monday as i64);
         let target_week_monday = monday + chrono::Duration::weeks((week_num - 1) as i64);
-        let exam_date = target_week_monday + chrono::Duration::days((weekday - 1) as i64);
+        let exam_date_base = target_week_monday + chrono::Duration::days((weekday - 1) as i64);
 
-        // 构建完整的考试时间
-        let naive_datetime = exam_date
-            .and_hms_opt(hour, minute, 0)
-            .ok_or_else(|| self.base.custom_error("Failed to create exam datetime"))?;
-
-        // 转换为UTC时间 (重庆时间为UTC+8)
-        let tz = self.timezone();
-        let dt = tz
-            .from_local_datetime(&naive_datetime)
-            .single()
-            .ok_or_else(|| self.base.custom_error("Failed to convert exam time to UTC"))?;
+        // 直接在现有日期时间基础上设置时分秒
+        let dt = exam_date_base
+            + chrono::Duration::hours(hour as i64)
+            + chrono::Duration::minutes(minute as i64);
 
         Ok(dt)
     }
@@ -723,8 +717,9 @@ impl Provider for RedrockProvider {
             })?;
 
         // 获取考试安排
+        let semester_start = &request.semester.as_ref().unwrap().start_date;
         let (exams, _) = self
-            .get_exam_schedule(&request.credentials.username)
+            .get_exam_schedule(&request.credentials.username, semester_start)
             .await
             .map_err(|e| {
                 tracing::warn!("Failed to get exam schedule: {}", e);
