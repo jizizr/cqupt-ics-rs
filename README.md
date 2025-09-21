@@ -9,17 +9,6 @@
 - **命令行工具 (cqupt-ics-cli)**: 终端命令行接口，适合脚本化使用
 - **Web 服务 (cqupt-ics-server)**: HTTP API 服务，支持远程调用
 
-## 功能特性
-
-- 支持多种数据源（Redrock API、教务在线等）
-- 标准 iCalendar (RFC 5545) 格式输出
-- 自动处理课程时间、地点和重复规则
-- 支持考试时间安排
-- 智能地理位置映射
-- 灵活的缓存机制
-- 可自定义日历名称和时区
-- 支持课程提醒设置
-
 ## 系统要求
 
 - Rust 2024 Edition
@@ -98,26 +87,12 @@ API 调用示例：
 
 ```bash
 # 生成课程表
-curl -X POST http://localhost:3000/api/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider": "redrock",
-    "username": "your_student_id",
-    "password": "your_password",
-    "year": 2024,
-    "term": 1,
-    "options": {
-      "calendar_name": "我的课程表",
-      "timezone": "Asia/Shanghai",
-      "reminder_minutes": 15
-    }
-  }'
-
+http://localhost:3000/courses?provider=redrock&username=2023214567&password=684104
 # 查看支持的数据源
-curl http://localhost:3000/api/providers
+http://localhost:3000/api/providers
 
 # 查看位置映射
-curl http://localhost:3000/api/locations
+http://localhost:3000/api/locations
 ```
 
 ### 核心库集成
@@ -172,19 +147,6 @@ tokio = { version = "1.0", features = ["full"] }
 1. 在 `cqupt-ics-core/src/providers/` 创建新的 provider 文件
 2. 实现 `Provider` trait
 3. 在 `registry.rs` 中注册新的 provider
-
-### 运行测试
-
-```bash
-# 运行所有测试
-cargo test
-
-# 运行特定模块测试
-cargo test --package cqupt-ics-core
-
-# 运行集成测试
-cargo test --test integration
-```
 
 ## 贡献指南
 
