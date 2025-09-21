@@ -161,7 +161,7 @@ impl RedrockProvider {
 
     /// 解析 version 字段来计算学期开始时间
     /// version 格式如 "2025.9.8" 表示2025年9月8日为第一周开始
-    fn parse_semester_start_from_version(&self, version: &str) -> Result<DateTime<Utc>> {
+    fn parse_semester_start_from_version(&self, version: &str) -> Result<DateTime<FixedOffset>> {
         let parts: Vec<&str> = version.split('.').collect();
         if parts.len() != 3 {
             return Err(self.base.custom_error(format!(
@@ -200,19 +200,19 @@ impl RedrockProvider {
         let naive_midnight = first_monday
             .and_hms_opt(0, 0, 0)
             .ok_or_else(|| self.base.custom_error("Failed to create datetime"))?;
-        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+        let tz = self.timezone();
         let dt_cst = tz.from_local_datetime(&naive_midnight).single().unwrap();
-        Ok(dt_cst.to_utc())
+        Ok(dt_cst)
     }
 
-    fn get_semester_start_from_now_week(&self, now_week: u32) -> Result<DateTime<Utc>> {
+    fn get_semester_start_from_now_week(&self, now_week: u32) -> Result<DateTime<FixedOffset>> {
         if now_week == 0 {
             return Err(self
                 .base
                 .custom_error("now_week is 0, cannot determine semester start".to_string()));
         }
 
-        let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+        let tz = self.timezone();
 
         let now_local = Utc::now().with_timezone(&tz);
         let today_local = now_local.date_naive();
@@ -243,7 +243,7 @@ impl RedrockProvider {
                     .custom_error("invalid local datetime for +08:00".to_string())
             })?;
 
-        Ok(start_local.with_timezone(&Utc))
+        Ok(start_local)
     }
 
     async fn get_class_schedule_data(
@@ -292,7 +292,7 @@ impl RedrockProvider {
             .await?;
 
         // 确定学期开始时间，并获取 start_date 的引用
-        let start_date: &DateTime<Utc> = &request
+        let start_date: &DateTime<FixedOffset> = &request
             .semester
             .get_or_insert_with(|| {
                 let start_date = if redrock_response.now_week == 0 {
@@ -305,7 +305,12 @@ impl RedrockProvider {
                 Semester { start_date }
             })
             .start_date;
-
+        println!(
+            "学期开始日期: {}",
+            start_date
+                .with_timezone(&self.timezone())
+                .format("%Y-%m-%d")
+        );
         // 转换为 Course 结构
         let mut courses = Vec::new();
         for class in redrock_response.data {
@@ -362,7 +367,7 @@ impl RedrockProvider {
     fn convert_class_to_course_with_recurrence(
         &self,
         class: &RedrockClass,
-        base_date: &DateTime<Utc>,
+        base_date: &DateTime<FixedOffset>,
     ) -> Result<Course> {
         // 计算第一次上课时间（取第一个上课周）
         let first_week = *class
@@ -414,7 +419,7 @@ impl RedrockProvider {
     fn create_recurrence_rule(
         &self,
         class: &RedrockClass,
-        base_date: &DateTime<Utc>,
+        base_date: &DateTime<FixedOffset>,
     ) -> Result<RecurrenceRule> {
         // 计算学期结束时间
         let last_week = *class
@@ -524,13 +529,20 @@ impl RedrockProvider {
         weekday: u32,
         begin_lesson: u32,
         period: u32,
-        base_date: &DateTime<Utc>,
-    ) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
-        // 计算该周的星期一
-        let base_date = base_date.date_naive();
-        let days_since_monday = base_date.weekday().num_days_from_monday();
-        let monday = base_date - chrono::Duration::days(days_since_monday as i64);
-        let target_week_monday = monday + chrono::Duration::weeks((week_num - 1) as i64);
+        base_date: &DateTime<FixedOffset>,
+    ) -> Result<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
+        // 防御性编程：如果 base_date 不是周一，自动找到该周的周一
+        // base_date 已经是带时区的时间
+        let base_local_date = base_date.date_naive();
+
+        let semester_start_monday = if base_local_date.weekday() != chrono::Weekday::Mon {
+            let days_since_monday = base_local_date.weekday().num_days_from_monday();
+            base_local_date - chrono::Duration::days(days_since_monday as i64)
+        } else {
+            base_local_date
+        };
+        let target_week_monday =
+            semester_start_monday + chrono::Duration::weeks((week_num - 1) as i64);
         let class_date = target_week_monday + chrono::Duration::days((weekday - 1) as i64);
 
         if begin_lesson == 0 || begin_lesson > LESSON_TIMES.len() as u32 {
@@ -556,22 +568,21 @@ impl RedrockProvider {
             .ok_or_else(|| self.base.custom_error("Invalid end time"))?;
 
         // 重庆时间为UTC+8
-        let start_utc = Utc
+        let tz = self.timezone();
+        let start_dt = tz
             .from_local_datetime(&start_time)
             .single()
             .ok_or_else(|| {
                 self.base
                     .custom_error("Failed to convert start time to UTC")
-            })?
-            - chrono::Duration::hours(8);
+            })?;
 
-        let end_utc = Utc
+        let end_dt = tz
             .from_local_datetime(&end_time)
             .single()
-            .ok_or_else(|| self.base.custom_error("Failed to convert end time to UTC"))?
-            - chrono::Duration::hours(8);
+            .ok_or_else(|| self.base.custom_error("Failed to convert end time to UTC"))?;
 
-        Ok((start_utc, end_utc))
+        Ok((start_dt, end_dt))
     }
 
     fn parse_exam_time_with_date(
@@ -579,7 +590,7 @@ impl RedrockProvider {
         time_str: &str,
         week_str: &str,
         weekday_str: &str,
-    ) -> Result<DateTime<Utc>> {
+    ) -> Result<DateTime<FixedOffset>> {
         // 首先尝试原有的完整日期时间格式
         if let Ok(datetime) = self.parse_exam_time(time_str) {
             return Ok(datetime);
@@ -629,16 +640,16 @@ impl RedrockProvider {
             .ok_or_else(|| self.base.custom_error("Failed to create exam datetime"))?;
 
         // 转换为UTC时间 (重庆时间为UTC+8)
-        let utc_time = Utc
+        let tz = self.timezone();
+        let dt = tz
             .from_local_datetime(&naive_datetime)
             .single()
-            .ok_or_else(|| self.base.custom_error("Failed to convert exam time to UTC"))?
-            - chrono::Duration::hours(8);
+            .ok_or_else(|| self.base.custom_error("Failed to convert exam time to UTC"))?;
 
-        Ok(utc_time)
+        Ok(dt)
     }
 
-    fn parse_exam_time(&self, time_str: &str) -> Result<DateTime<Utc>> {
+    fn parse_exam_time(&self, time_str: &str) -> Result<DateTime<FixedOffset>> {
         // 尝试解析时间格式，例如 "2024-01-15 14:00:00"
         let naive_datetime = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M:%S")
             .or_else(|_| NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M"))
@@ -648,13 +659,13 @@ impl RedrockProvider {
             })?;
 
         // 转换为UTC时间 (假设重庆时间为UTC+8)
-        let utc_time = Utc
+        let tz = self.timezone();
+        let dt = tz
             .from_local_datetime(&naive_datetime)
             .single()
-            .ok_or_else(|| self.base.custom_error("Failed to convert exam time to UTC"))?
-            - chrono::Duration::hours(8);
+            .ok_or_else(|| self.base.custom_error("Failed to convert exam time to UTC"))?;
 
-        Ok(utc_time)
+        Ok(dt)
     }
 }
 
@@ -668,6 +679,10 @@ impl Provider for RedrockProvider {
 
     fn description(&self) -> &str {
         &self.base.info.description
+    }
+
+    fn timezone(&self) -> FixedOffset {
+        FixedOffset::east_opt(8 * 3600).unwrap()
     }
 
     async fn authenticate(&self, request: &CourseRequest) -> Result<Self::Token> {
@@ -702,12 +717,10 @@ impl Provider for RedrockProvider {
 
         // 获取课程表数据
         let (courses, current_week) =
-            self.get_class_schedule(request, token)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to get class schedule: {}", e);
-                    e
-                })?;
+            self.get_class_schedule(request, token).await.map_err(|e| {
+                tracing::error!("Failed to get class schedule: {}", e);
+                e
+            })?;
 
         // 获取考试安排
         let (exams, _) = self
@@ -732,7 +745,7 @@ impl Provider for RedrockProvider {
         Ok(CourseResponse {
             courses: all_courses,
             semester: request.semester.clone().unwrap(),
-            generated_at: Utc::now(),
+            generated_at: Utc::now().with_timezone(&self.timezone()),
         })
     }
 

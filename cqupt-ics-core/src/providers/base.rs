@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::{Client, ClientBuilder};
 
 use crate::{CourseRequest, CourseResponse, Error};
@@ -86,12 +86,11 @@ impl BaseProvider {
 
     /// 创建空的课程响应
     pub fn empty_response(&self, request: &CourseRequest) -> CourseResponse {
+        let tz = chrono::FixedOffset::east_opt(8 * 3600).unwrap(); // UTC+8
         CourseResponse {
             courses: Vec::new(),
-            semester: request.semester.clone().unwrap_or_else(|| crate::Semester {
-                start_date: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
-            }),
-            generated_at: Utc::now(),
+            semester: request.semester.clone().unwrap(),
+            generated_at: Utc::now().with_timezone(&tz),
         }
     }
 }

@@ -1,13 +1,10 @@
-//! 数据提供者模块
-//!
-//! 此模块定义了课程数据提供者的trait和实现。
-
 pub mod base;
 pub mod redrock;
 
 use std::{collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
+use chrono::FixedOffset;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
@@ -32,6 +29,13 @@ pub trait Provider: Send + Sync {
 
     /// Provider description
     fn description(&self) -> &str;
+
+    /// Get timezone for this provider
+    ///
+    /// Returns the timezone used by this provider for time calculations.
+    /// This is used to ensure consistent timezone handling across all
+    /// provider operations.
+    fn timezone(&self) -> FixedOffset;
 
     /// Authenticate and get token
     async fn authenticate(&self, request: &CourseRequest) -> Result<Self::Token>;
