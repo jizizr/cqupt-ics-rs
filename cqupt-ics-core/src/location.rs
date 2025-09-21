@@ -141,7 +141,8 @@ X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-TITLE=重庆邮电大学\\n崇文路2号
             .unwrap_or("29.530807,106.607617")
             .replace(',', ";");
 
-        format!("\r\n{}\r\nGEO:{}", custom_geo, geo_part)
+        let custom_geo_crlf = custom_geo.replace('\n', "\r\n");
+        format!("{}\r\nGEO:{}\r\n", custom_geo_crlf, geo_part)
     }
 
     /// 提取四位数教室号
