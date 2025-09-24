@@ -63,7 +63,6 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
         calendar_name: params
             .calendar_name
             .or_else(|| Some(format!("{}的课程表", params.username))),
-        timezone: Some("Asia/Shanghai".to_string()),
         include_description: true,
         include_teacher: params.include_teacher,
         reminder_minutes: Some(params.reminder_minutes),

@@ -34,10 +34,6 @@ impl IcsGenerator {
             ics_content.push_str(&format!("X-WR-CALNAME:{}\r\n", name));
         }
 
-        if let Some(ref timezone) = self.options.timezone {
-            ics_content.push_str(&format!("X-WR-TIMEZONE:{}\r\n", timezone));
-        }
-
         // 添加课程事件
         for course in &response.courses {
             self.add_course_event(&mut ics_content, course)?;

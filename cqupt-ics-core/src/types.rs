@@ -141,8 +141,6 @@ pub struct CourseResponse {
 pub struct IcsOptions {
     /// 日历名称
     pub calendar_name: Option<String>,
-    /// 时区
-    pub timezone: Option<String>,
     /// 是否包含课程描述
     pub include_description: bool,
     /// 是否包含教师信息
@@ -154,7 +152,6 @@ impl Default for IcsOptions {
     fn default() -> Self {
         Self {
             calendar_name: Some("CQUPT课程表".to_string()),
-            timezone: Some("Asia/Shanghai".to_string()),
             include_description: true,
             include_teacher: true,
             reminder_minutes: Some(15),
