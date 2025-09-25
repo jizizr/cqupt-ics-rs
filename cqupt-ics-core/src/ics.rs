@@ -124,11 +124,7 @@ impl IcsGenerator {
     pub fn build_course_title(&self, course: &Course) -> String {
         if course.course_type.as_deref() == Some("考试") {
             // 考试类型：[考试类型考试] 课程名 - 地点
-            let exam_type = course
-                .extra
-                .get("exam_type")
-                .map(|s| s.as_str())
-                .unwrap_or("");
+            let exam_type = course.exam_type.as_deref().unwrap_or("");
             let location = course.location.as_deref().unwrap_or("");
             format!("[{}考试] {} - {}", exam_type, course.name, location)
         } else {
@@ -144,19 +140,11 @@ impl IcsGenerator {
         let teacher = course.teacher.as_deref().unwrap_or("未知");
         let course_type = course.course_type.as_deref().unwrap_or("未知");
 
-        // 从extra字段获取上课周次信息
-        let raw_week = course
-            .extra
-            .get("raw_week")
-            .map(|s| s.as_str())
-            .unwrap_or("");
+        // 获取上课周次信息
+        let raw_week = course.raw_week.as_deref().unwrap_or("");
 
-        // 获取当前周数，如果没有可以从extra或其他地方获取
-        let current_week = course
-            .extra
-            .get("current_week")
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(1);
+        // 获取当前周数
+        let current_week = course.current_week.unwrap_or(1);
 
         let formatted_weeks = if raw_week.is_empty() {
             "全学期".to_string()
@@ -172,14 +160,10 @@ impl IcsGenerator {
 
     /// 构建考试描述
     pub fn build_exam_description(&self, course: &Course) -> String {
-        // 从extra字段获取考试相关信息
-        let seat = course
-            .extra
-            .get("seat")
-            .map(|s| s.as_str())
-            .unwrap_or("待定");
-        let status = course.extra.get("status").map(|s| s.as_str()).unwrap_or("");
-        let week = course.extra.get("week").map(|s| s.as_str()).unwrap_or("");
+        // 获取考试相关信息
+        let seat = course.seat.as_deref().unwrap_or("待定");
+        let status = course.status.as_deref().unwrap_or("");
+        let week = course.week.as_deref().unwrap_or("");
 
         let test_status = if status.is_empty() { "正常" } else { status };
 

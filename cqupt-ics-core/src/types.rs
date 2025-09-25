@@ -42,8 +42,22 @@ pub struct Course {
     pub credits: Option<f32>,
     /// 重复规则 (用于生成RRULE)
     pub recurrence: Option<RecurrenceRule>,
-    /// 额外属性
-    pub extra: HashMap<String, String>,
+
+    // 显示相关字段
+    /// 原始周次信息（用于显示）
+    pub raw_week: Option<String>,
+    /// 当前周数（用于显示）
+    pub current_week: Option<u32>,
+
+    // 考试相关字段
+    /// 考试类型
+    pub exam_type: Option<String>,
+    /// 考试座位号
+    pub seat: Option<String>,
+    /// 考试状态
+    pub status: Option<String>,
+    /// 考试周数
+    pub week: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,18 +116,6 @@ pub struct Credentials {
     pub extra: HashMap<String, String>,
 }
 
-/// provider配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderConfig {
-    /// provider名称
-    pub name: String,
-    /// 基础URL
-    pub base_url: String,
-    pub timeout: Option<u64>,
-    /// 额外配置
-    pub extra: HashMap<String, String>,
-}
-
 /// 课程查询请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CourseRequest {
@@ -121,8 +123,6 @@ pub struct CourseRequest {
     pub credentials: Credentials,
     /// 学期信息
     pub semester: Option<Semester>,
-    /// provider配置
-    pub provider_config: ProviderConfig,
 }
 
 /// 课程查询响应

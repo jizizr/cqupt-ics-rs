@@ -136,12 +136,6 @@ async fn get_courses_handler(
             extra: HashMap::new(),
         },
         semester,
-        provider_config: ProviderConfig {
-            name: params.provider.clone(),
-            base_url: String::new(),
-            timeout: Some(30),
-            extra: HashMap::new(),
-        },
     };
 
     // 获取 provider

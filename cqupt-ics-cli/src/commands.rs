@@ -42,12 +42,6 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
             extra: HashMap::new(),
         },
         semester,
-        provider_config: ProviderConfig {
-            name: params.provider_name.clone(),
-            base_url: String::new(),
-            timeout: Some(30),
-            extra: HashMap::new(),
-        },
     };
 
     let provider = registry::get_provider(&params.provider_name)
@@ -97,12 +91,6 @@ pub async fn validate_command(
             extra: HashMap::new(),
         },
         semester: None,
-        provider_config: ProviderConfig {
-            name: provider_name.clone(),
-            base_url: String::new(),
-            timeout: Some(30),
-            extra: HashMap::new(),
-        },
     };
 
     let provider = registry::get_provider(&provider_name)
