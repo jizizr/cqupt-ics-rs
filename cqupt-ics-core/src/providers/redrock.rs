@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     Course, CourseRequest, CourseResponse, Error, RecurrenceRule, Result,
     prelude::*,
-    providers::{BaseProvider, Provider},
+    providers::{BaseProvider, ParamContext, ParamContextExt, Provider},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Utc};
@@ -26,8 +26,8 @@ const LESSON_TIMES: [(usize, usize); 12] = [
 
 /// Redrock API响应数据结构
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct RedrockResponse {
+#[derive(Debug, Clone, Deserialize)]
+pub struct RedrockResponse {
     data: Vec<RedrockClass>,
     info: String,
     #[serde(rename = "nowWeek")]
@@ -54,7 +54,7 @@ pub struct RedrockTokenData {
 
 /// Redrock课程信息
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct RedrockClass {
     #[serde(rename = "hash_day")]
     hash_day: u32,
@@ -134,32 +134,6 @@ impl Default for RedrockProvider {
 }
 
 impl RedrockProvider {
-    async fn authenticate(&self, credentials: &crate::types::Credentials) -> Result<RedrockToken> {
-        tracing::info!("Authenticating user: {}", credentials.username);
-        let url = format!("{}/magipoke/token", Self::API_ROOT);
-        let mut data = HashMap::new();
-        data.insert("stuNum", credentials.username.clone());
-        data.insert("idNum", credentials.password.clone());
-        let response = self
-            .base
-            .client
-            .post(&url)
-            .header("Host", Self::API_ROOT.trim_start_matches("https://"))
-            .json(&data)
-            .send()
-            .await
-            .map_err(|e| self.base.handle_error_req(e))?;
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(self
-                .base
-                .custom_error(format!("HTTP {} error", response.status())));
-        }
-        response.json().await.map_err(|e| {
-            self.base
-                .custom_error(format!("Failed to parse response: {}", e))
-        })
-    }
-
     /// 解析 version 字段来计算学期开始时间
     /// version 格式如 "2025.9.8" 表示2025年9月8日为第一周开始
     fn parse_semester_start_from_version(&self, version: &str) -> Result<DateTime<FixedOffset>> {
@@ -283,39 +257,39 @@ impl RedrockProvider {
     /// 获取课程表数据
     async fn get_class_schedule(
         &self,
+        context: &mut Context<RedrockResponse>,
         request: &mut CourseRequest,
         token: &RedrockToken,
     ) -> Result<(Vec<Course>, u32)> {
-        let redrock_response: RedrockResponse = self
-            .get_class_schedule_data(&request.credentials.username, token)
-            .await?;
-
-        // 确定学期开始时间，并获取 start_date 的引用
-        let start_date: &DateTime<FixedOffset> = &request
+        let start_date = request
             .semester
-            .get_or_insert_with(|| {
-                let start_date = if redrock_response.now_week == 0 {
-                    self.parse_semester_start_from_version(&redrock_response.version)
-                        .expect("failed to parse semester start")
-                } else {
-                    self.get_semester_start_from_now_week(redrock_response.now_week)
-                        .expect("failed to get semester start")
-                };
-                Semester { start_date }
-            })
+            .as_ref()
+            .ok_or_else(|| {
+                self.base
+                    .custom_error("Semester start date is required".to_string())
+            })?
             .start_date;
+
         println!(
             "学期开始日期: {}",
             start_date
                 .with_timezone(&self.timezone())
                 .format("%Y-%m-%d")
         );
-        // 转换为 Course 结构
+
         let mut courses = Vec::new();
-        for class in redrock_response.data {
+        let redrock_response = match context.as_ref() {
+            Some(data) => data,
+            None => {
+                &self
+                    .get_class_schedule_data(&request.credentials.username, token)
+                    .await?
+            }
+        };
+        for class in &redrock_response.data {
             let course = self.convert_class_to_course_with_recurrence(
-                &class,
-                start_date,
+                class,
+                &start_date,
                 redrock_response.now_week,
             )?;
             courses.push(course);
@@ -394,15 +368,6 @@ impl RedrockProvider {
         // 创建重复规则
         let recurrence = self.create_recurrence_rule(class, base_date)?;
 
-        let mut extra = HashMap::new();
-        extra.insert("course_num".to_string(), class.course_num.clone());
-        extra.insert("raw_week".to_string(), class.raw_week.clone());
-        extra.insert("weeks".to_string(), format!("{:?}", class.week));
-        extra.insert("hash_day".to_string(), class.hash_day.to_string());
-        extra.insert("begin_lesson".to_string(), class.begin_lesson.to_string());
-        extra.insert("period".to_string(), class.period.to_string());
-        extra.insert("current_week".to_string(), current_week.to_string());
-
         Ok(Course {
             name: class.course.clone(),
             code: Some(class.course_num.clone()),
@@ -420,7 +385,16 @@ impl RedrockProvider {
             course_type: Some(class.course_type.clone()),
             credits: None,
             recurrence: Some(recurrence),
-            extra,
+
+            // 显示相关字段
+            raw_week: Some(class.raw_week.clone()),
+            current_week: Some(current_week),
+
+            // 考试相关字段（普通课程为空）
+            exam_type: None,
+            seat: None,
+            status: None,
+            week: None,
         })
     }
 
@@ -518,15 +492,6 @@ impl RedrockProvider {
             semester_start,
         )?;
 
-        let mut extra = HashMap::new();
-        extra.insert("exam_type".to_string(), exam.exam_type.clone());
-        extra.insert("status".to_string(), exam.status.clone());
-        extra.insert("week".to_string(), exam.week.clone());
-        extra.insert("weekday".to_string(), exam.weekday.clone());
-        if let Some(ref seat) = exam.seat {
-            extra.insert("seat".to_string(), seat.clone());
-        }
-
         let description = format!("考试 - {} ({})", exam.course, exam.status);
 
         Ok(Course {
@@ -540,7 +505,16 @@ impl RedrockProvider {
             course_type: Some("考试".to_string()),
             credits: None,
             recurrence: None, // 考试不使用重复规则
-            extra,
+
+            // 显示相关字段（考试为空）
+            raw_week: None,
+            current_week: None,
+
+            // 考试相关字段
+            exam_type: Some(exam.exam_type.clone()),
+            seat: exam.seat.clone(),
+            status: Some(exam.status.clone()),
+            week: Some(exam.week.clone()),
         })
     }
 
@@ -667,7 +641,7 @@ impl RedrockProvider {
 #[async_trait]
 impl Provider for RedrockProvider {
     type Token = RedrockToken;
-
+    type ContextType = RedrockResponse;
     fn name(&self) -> &str {
         &self.base.info.name
     }
@@ -680,14 +654,39 @@ impl Provider for RedrockProvider {
         FixedOffset::east_opt(8 * 3600).unwrap()
     }
 
-    async fn authenticate(&self, request: &CourseRequest) -> Result<Self::Token> {
+    async fn authenticate<'a>(
+        &'a self,
+        _context: ParamContext<'_, Self::ContextType>,
+        request: &CourseRequest,
+    ) -> Result<Self::Token> {
         tracing::info!(
             "Getting credentials for redrock user: {}",
             request.credentials.username
         );
-
-        let token = self.authenticate(&request.credentials).await?;
-        Ok(token)
+        let credentials = &request.credentials;
+        tracing::info!("Authenticating user: {}", credentials.username);
+        let url = format!("{}/magipoke/token", Self::API_ROOT);
+        let mut data = HashMap::new();
+        data.insert("stuNum", credentials.username.clone());
+        data.insert("idNum", credentials.password.clone());
+        let response = self
+            .base
+            .client
+            .post(&url)
+            .header("Host", Self::API_ROOT.trim_start_matches("https://"))
+            .json(&data)
+            .send()
+            .await
+            .map_err(|e| self.base.handle_error_req(e))?;
+        if response.status() != reqwest::StatusCode::OK {
+            return Err(self
+                .base
+                .custom_error(format!("HTTP {} error", response.status())));
+        }
+        response.json().await.map_err(|e| {
+            self.base
+                .custom_error(format!("Failed to parse response: {}", e))
+        })
     }
 
     async fn validate_token(&self, token: &Self::Token) -> Result<bool> {
@@ -695,11 +694,45 @@ impl Provider for RedrockProvider {
         Ok(token.status == "10000" && !token.data.token.is_empty())
     }
 
-    async fn get_courses(
-        &self,
+    async fn get_semester_start<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &mut CourseRequest,
+        token: &Self::Token,
+    ) -> Result<chrono::DateTime<FixedOffset>> {
+        let ctx = context.ensure_valid()?;
+
+        let redrock_response = match ctx.as_ref() {
+            Some(data) => data,
+            None => {
+                let data = self
+                    .get_class_schedule_data(&request.credentials.username, token)
+                    .await?;
+                ctx.set(data);
+                // 现在获取刚设置的数据的引用
+                ctx.as_ref().ok_or(
+                    self.base
+                        .custom_error("Failed to get RedrockResponse from context".to_string()),
+                )?
+            }
+        };
+
+        if redrock_response.now_week == 0 {
+            // 如果now_week为0，尝试从version字段解析学期开始时间
+            self.parse_semester_start_from_version(&redrock_response.version)
+        } else {
+            // 使用now_week计算学期开始时间
+            self.get_semester_start_from_now_week(redrock_response.now_week)
+        }
+    }
+
+    async fn get_courses<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
         request: &mut CourseRequest,
         token: &Self::Token,
     ) -> Result<CourseResponse> {
+        let ctx = context.ensure_valid()?;
         // 验证token
         if !self.validate_token(token).await? {
             return Err(self.base.custom_error("Invalid or expired token"));
@@ -710,24 +743,24 @@ impl Provider for RedrockProvider {
             request.credentials.username
         );
 
-        // 获取课程表数据
         let (courses, current_week) =
-            self.get_class_schedule(request, token).await.map_err(|e| {
-                tracing::error!("Failed to get class schedule: {}", e);
-                e
-            })?;
+            self.get_class_schedule(ctx, request, token)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get class schedule: {}", e);
+                    e
+                })?;
 
-        // 获取考试安排
         let semester_start = &request.semester.as_ref().unwrap().start_date;
         let (exams, _) = self
             .get_exam_schedule(&request.credentials.username, semester_start)
             .await
             .map_err(|e| {
                 tracing::warn!("Failed to get exam schedule: {}", e);
-                // 考试安排获取失败不影响课程表，只记录警告
                 e
             })
             .unwrap_or_else(|_| (Vec::new(), 0));
+
         // 合并课程和考试
         let mut all_courses = courses;
         all_courses.extend(exams);
@@ -746,8 +779,46 @@ impl Provider for RedrockProvider {
     }
 
     async fn refresh_token(&self, token: &Self::Token) -> Result<Self::Token> {
-        // TODO: 实现token刷新逻辑
-        Ok(token.clone())
+        tracing::info!("Refreshing token for redrock");
+        let url = format!("{}/magipoke/token/refresh", Self::API_ROOT);
+
+        let mut data = HashMap::new();
+        data.insert("refreshToken", &token.data.refresh_token);
+
+        let response = self
+            .base
+            .client
+            .post(&url)
+            .header("Host", Self::API_ROOT.trim_start_matches("https://"))
+            .header("Accept", "*/*")
+            .header("Connection", "keep-alive")
+            .bearer_auth(&token.data.token)
+            .header("Content-Type", "application/json")
+            .json(&data)
+            .send()
+            .await
+            .map_err(|e| self.base.handle_error_req(e))?;
+
+        if !response.status().is_success() {
+            return Err(self.base.custom_error(format!(
+                "HTTP {} error when refreshing token",
+                response.status()
+            )));
+        }
+
+        let refreshed_token: RedrockToken = response.json().await.map_err(|e| {
+            self.base
+                .custom_error(format!("Failed to parse refresh token response: {}", e))
+        })?;
+
+        // 验证刷新后的token状态
+        if self.validate_token(&refreshed_token).await? {
+            return Err(self
+                .base
+                .custom_error("Refresh token returned invalid status"));
+        }
+
+        Ok(refreshed_token)
     }
 
     async fn logout(&self, token: &Self::Token) -> Result<()> {

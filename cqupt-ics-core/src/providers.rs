@@ -17,13 +17,112 @@ pub use base::*;
 /// Provider token trait for serialization
 pub trait ProviderToken: Send + Sync + Serialize + DeserializeOwned {}
 impl<T> ProviderToken for T where T: Send + Sync + Serialize + DeserializeOwned {}
+// Context 变成一个简单的 newtype wrapper
+#[derive(Debug)]
+pub struct Context<T> {
+    inner: Option<T>,
+}
+
+impl<T> Context<T> {
+    pub fn new(value: T) -> Self {
+        Self { inner: Some(value) }
+    }
+
+    pub fn set(&mut self, value: T) {
+        self.inner = Some(value);
+    }
+
+    pub fn get_mut(&mut self) -> &mut Option<T> {
+        &mut self.inner
+    }
+
+    pub fn get(&self) -> &Option<T> {
+        &self.inner
+    }
+
+    pub fn as_ref(&self) -> Option<&T> {
+        self.inner.as_ref()
+    }
+
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        self.inner.as_mut()
+    }
+
+    pub fn as_param(&mut self) -> ParamContext<'_, T> {
+        Some(self)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_none()
+    }
+
+    pub fn is_some(&self) -> bool {
+        self.inner.is_some()
+    }
+
+    pub fn ensure_valid(&mut self) -> Result<&mut Self> {
+        if self.is_empty() {
+            Err(crate::Error::Config("Context is empty".to_string()))
+        } else {
+            Ok(self)
+        }
+    }
+
+    pub fn with<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(ParamContext<'_, T>) -> R,
+    {
+        f(Some(self))
+    }
+}
+
+impl<T> Default for Context<T> {
+    fn default() -> Self {
+        Self { inner: None }
+    }
+}
+
+impl<T: Clone> Clone for Context<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+type ParamContext<'a, T> = Option<&'a mut Context<T>>;
+
+/// ParamContext的便利扩展
+pub trait ParamContextExt<'a, T> {
+    /// 确保ParamContext有效并返回可变引用
+    fn ensure_valid(self) -> Result<&'a mut Context<T>>;
+
+    /// 安全地使用ParamContext执行操作
+    fn use_context<F, R>(self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut Context<T>) -> Result<R>;
+}
+
+impl<'a, T> ParamContextExt<'a, T> for ParamContext<'a, T> {
+    fn ensure_valid(self) -> Result<&'a mut Context<T>> {
+        self.ok_or_else(|| crate::Error::Config("Invalid context".to_string()))
+    }
+
+    fn use_context<F, R>(self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut Context<T>) -> Result<R>,
+    {
+        let ctx = self.ensure_valid()?;
+        f(ctx)
+    }
+}
 
 /// 数据提供者trait
 #[async_trait]
 pub trait Provider: Send + Sync {
     /// Token type for this provider
     type Token: Send + Sync + Serialize + DeserializeOwned;
-
+    type ContextType: Send + Sync;
     /// Provider name
     fn name(&self) -> &str;
 
@@ -38,7 +137,11 @@ pub trait Provider: Send + Sync {
     fn timezone(&self) -> FixedOffset;
 
     /// Authenticate and get token
-    async fn authenticate(&self, request: &CourseRequest) -> Result<Self::Token>;
+    async fn authenticate<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &CourseRequest,
+    ) -> Result<Self::Token>;
 
     /// Validate existing token
     async fn validate_token(&self, token: &Self::Token) -> Result<bool>;
@@ -47,11 +150,25 @@ pub trait Provider: Send + Sync {
     async fn refresh_token(&self, token: &Self::Token) -> Result<Self::Token>;
 
     /// Get courses using token
-    async fn get_courses(
-        &self,
+    /// request.semester should be Some before calling this method
+    /// If use crate::providers::Wrapper, it will ensure semester is Some
+    async fn get_courses<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
         request: &mut CourseRequest,
         token: &Self::Token,
     ) -> Result<CourseResponse>;
+
+    /// Get semester start date
+    /// This is called if request.semester is None before get_courses
+    /// If you use crate::providers::Wrapper, it will call this method automatically if request.semester is None
+    /// You can use the context to store intermediate data if needed
+    async fn get_semester_start<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &mut CourseRequest,
+        token: &Self::Token,
+    ) -> Result<chrono::DateTime<FixedOffset>>;
 
     /// Logout and invalidate token
     async fn logout(&self, token: &Self::Token) -> Result<()>;
@@ -144,7 +261,7 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> Wrapper<P, C> {
         }
 
         // Authenticate and cache new token
-        let token = self.provider.authenticate(request).await?;
+        let token = self.provider.authenticate(None, request).await?;
         let ttl = self.provider.token_ttl();
         self.cache_manager
             .cache_token(&cache_key, &token, ttl)
@@ -171,7 +288,17 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> ProviderWrapper for Wrapp
 
     async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse> {
         let token = self.get_or_create_token(request).await?;
-        self.provider.get_courses(request, &token).await
+        let mut c: Context<P::ContextType> = Context::default();
+        if request.semester.is_none() {
+            let sem = self
+                .provider
+                .get_semester_start(c.as_param(), request, &token)
+                .await?;
+            request.semester = Some(crate::Semester { start_date: sem });
+        }
+        self.provider
+            .get_courses(c.as_param(), request, &token)
+            .await
     }
 
     async fn logout(&self) -> Result<()> {
