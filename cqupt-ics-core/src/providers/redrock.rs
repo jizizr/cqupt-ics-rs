@@ -691,7 +691,9 @@ impl Provider for RedrockProvider {
 
     async fn validate_token(&self, token: &Self::Token) -> Result<bool> {
         // 检查token的状态字段
-        Ok(token.status == "10000" && !token.data.token.is_empty())
+        Ok(token.status == "10000"
+            && !token.data.token.is_empty()
+            && !base::is_token_expired(&token.data.token)?)
     }
 
     async fn get_semester_start<'a, 'b>(

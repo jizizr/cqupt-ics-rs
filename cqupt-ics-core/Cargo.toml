@@ -19,6 +19,6 @@ uuid.workspace = true
 async-trait.workspace = true
 regex.workspace = true
 typetag.workspace = true
-
+base64.workspace = true
 [dev-dependencies]
 tokio-test = "0.4"
