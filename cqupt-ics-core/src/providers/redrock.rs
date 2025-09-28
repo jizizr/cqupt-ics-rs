@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    Course, CourseRequest, CourseResponse, Error, RecurrenceRule, Result,
+    Course, CourseRequest, CourseResponse, Error, Result,
     prelude::*,
     providers::{BaseProvider, ParamContext, ParamContextExt, Provider},
 };
@@ -287,11 +287,8 @@ impl RedrockProvider {
             }
         };
         for class in &redrock_response.data {
-            let course = self.convert_class_to_course_with_recurrence(
-                class,
-                &start_date,
-                redrock_response.now_week,
-            )?;
+            let course =
+                self.convert_class_to_course(class, &start_date, redrock_response.now_week)?;
             courses.push(course);
         }
 
@@ -344,8 +341,8 @@ impl RedrockProvider {
         Ok((exams, exam_response.now_week))
     }
 
-    /// 将课程转换为带重复规则的Course结构
-    fn convert_class_to_course_with_recurrence(
+    /// 将课程转换为Course结构
+    fn convert_class_to_course(
         &self,
         class: &RedrockClass,
         base_date: &DateTime<FixedOffset>,
@@ -365,9 +362,6 @@ impl RedrockProvider {
             base_date,
         )?;
 
-        // 创建重复规则
-        let recurrence = self.create_recurrence_rule(class, base_date)?;
-
         Ok(Course {
             name: class.course.clone(),
             code: Some(class.course_num.clone()),
@@ -384,7 +378,12 @@ impl RedrockProvider {
             )),
             course_type: Some(class.course_type.clone()),
             credits: None,
-            recurrence: Some(recurrence),
+
+            // 提供原始数据供 ICS 模块使用
+            weeks: Some(class.week.clone()),
+            weekday: Some(class.hash_day + 1), // 转换为1-7格式
+            begin_lesson: Some(class.begin_lesson),
+            lesson_duration: Some(class.period),
 
             // 显示相关字段
             raw_week: Some(class.raw_week.clone()),
@@ -395,80 +394,6 @@ impl RedrockProvider {
             seat: None,
             status: None,
             week: None,
-        })
-    }
-
-    /// 创建重复规则
-    fn create_recurrence_rule(
-        &self,
-        class: &RedrockClass,
-        base_date: &DateTime<FixedOffset>,
-    ) -> Result<RecurrenceRule> {
-        // 计算学期结束时间
-        let last_week = *class
-            .week
-            .last()
-            .ok_or_else(|| self.base.custom_error("Course has no week data"))?;
-
-        let (_, until_end_time) = self.calculate_class_time(
-            last_week,
-            class.hash_day + 1,
-            class.begin_lesson,
-            class.period,
-            base_date,
-        )?;
-
-        // 检查是否是连续的周次
-        let is_continuous = class.week.windows(2).all(|w| w[1] == w[0] + 1);
-
-        let (frequency, interval, count, until, exception_dates) = if is_continuous {
-            // 连续周次，使用简单的WEEKLY重复
-            (
-                "WEEKLY".to_string(),
-                1,
-                None,
-                Some(until_end_time),
-                Vec::new(),
-            )
-        } else {
-            // 非连续周次，计算例外日期
-            let mut exceptions = Vec::new();
-
-            // 找出缺失的周次
-            if let (Some(&first), Some(&last)) = (class.week.first(), class.week.last()) {
-                for week in first..=last {
-                    if !class.week.contains(&week) {
-                        let (exception_start, _) = self.calculate_class_time(
-                            week,
-                            class.hash_day + 1,
-                            class.begin_lesson,
-                            class.period,
-                            base_date,
-                        )?;
-                        exceptions.push(exception_start);
-                    }
-                }
-            }
-
-            (
-                "WEEKLY".to_string(),
-                1,
-                None,
-                Some(until_end_time),
-                exceptions,
-            )
-        };
-
-        // 确定星期几 (hash_day+1 转换为1-7的weekday)
-        let by_day = vec![class.hash_day + 1];
-
-        Ok(RecurrenceRule {
-            frequency,
-            interval,
-            until,
-            count,
-            by_day: Some(by_day),
-            exception_dates,
         })
     }
 
@@ -504,7 +429,12 @@ impl RedrockProvider {
             description: Some(description),
             course_type: Some("考试".to_string()),
             credits: None,
-            recurrence: None, // 考试不使用重复规则
+
+            // 考试不提供重复规则数据
+            weeks: None,
+            weekday: None,
+            begin_lesson: None,
+            lesson_duration: None,
 
             // 显示相关字段（考试为空）
             raw_week: None,

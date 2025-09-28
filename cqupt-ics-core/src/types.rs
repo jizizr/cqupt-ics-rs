@@ -40,8 +40,16 @@ pub struct Course {
     pub course_type: Option<String>,
     /// 学分
     pub credits: Option<f32>,
-    /// 重复规则 (用于生成RRULE)
-    pub recurrence: Option<RecurrenceRule>,
+
+    // 原始课程数据，用于ICS模块创建重复规则
+    /// 上课周次列表 (如 [1,3,5,7,9])
+    pub weeks: Option<Vec<u32>>,
+    /// 星期几 (1-7, 1=Monday)
+    pub weekday: Option<u32>,
+    /// 开始节次
+    pub begin_lesson: Option<u32>,
+    /// 持续节数
+    pub lesson_duration: Option<u32>,
 
     // 显示相关字段
     /// 原始周次信息（用于显示）

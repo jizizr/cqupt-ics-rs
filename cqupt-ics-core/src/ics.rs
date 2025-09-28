@@ -1,8 +1,8 @@
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
 use uuid::Uuid;
 
 use crate::{
-    Course, CourseResponse, IcsOptions, RecurrenceRule, Result, location::LocationManager,
+    Course, CourseResponse, Error, IcsOptions, RecurrenceRule, Result, location::LocationManager,
 };
 
 /// ICS日历生成器
@@ -21,6 +21,9 @@ impl IcsGenerator {
 
     /// 生成ICS日历内容
     pub fn generate(&self, response: &CourseResponse) -> Result<String> {
+        // 首先处理课程，智能创建重复规则
+        let processed_courses = self.process_courses(&response.courses, &response.semester)?;
+
         let mut ics_content = String::new();
 
         // ICS文件头部
@@ -35,8 +38,8 @@ impl IcsGenerator {
         }
 
         // 添加课程事件
-        for course in &response.courses {
-            self.add_course_event(&mut ics_content, course)?;
+        for course_with_recurrence in &processed_courses {
+            self.add_course_event(&mut ics_content, course_with_recurrence)?;
         }
 
         // ICS文件尾部
@@ -45,8 +48,130 @@ impl IcsGenerator {
         Ok(ics_content)
     }
 
+    /// 处理课程列表，智能创建重复规则
+    fn process_courses(
+        &self,
+        courses: &[Course],
+        semester: &crate::Semester,
+    ) -> Result<Vec<CourseWithRecurrence>> {
+        let mut processed = Vec::new();
+
+        for course in courses {
+            let processed_course = if self.is_exam_course(course) {
+                // 考试不需要重复规则
+                CourseWithRecurrence {
+                    course: course.clone(),
+                    recurrence: None,
+                }
+            } else if let (Some(weeks), Some(weekday)) = (&course.weeks, course.weekday) {
+                // 创建重复规则
+                let recurrence = self.create_recurrence_rule(
+                    weeks,
+                    weekday,
+                    &course.start_time,
+                    &course.end_time,
+                    semester,
+                )?;
+
+                CourseWithRecurrence {
+                    course: course.clone(),
+                    recurrence: Some(recurrence),
+                }
+            } else {
+                // 没有足够信息创建重复规则，作为单次事件
+                CourseWithRecurrence {
+                    course: course.clone(),
+                    recurrence: None,
+                }
+            };
+
+            processed.push(processed_course);
+        }
+
+        Ok(processed)
+    }
+
+    /// 判断是否是考试课程
+    fn is_exam_course(&self, course: &Course) -> bool {
+        course.exam_type.is_some()
+            || course
+                .course_type
+                .as_ref()
+                .is_some_and(|t| t.contains("考试"))
+    }
+
+    /// 创建重复规则
+    fn create_recurrence_rule(
+        &self,
+        weeks: &[u32],
+        weekday: u32,
+        start_time: &DateTime<FixedOffset>,
+        _end_time: &DateTime<FixedOffset>,
+        _semester: &crate::Semester,
+    ) -> Result<RecurrenceRule> {
+        if weeks.is_empty() {
+            return Err(Error::Config("Course has no week data".to_string()));
+        }
+
+        // 计算学期结束时间（最后一周的课程结束时间）
+        let last_week = *weeks.last().unwrap();
+        let weeks_duration = chrono::Duration::weeks(last_week as i64 - 1);
+        let until_end_time = *start_time + weeks_duration;
+
+        // 检查是否是连续的周次
+        let is_continuous = weeks.len() > 1 && weeks.windows(2).all(|w| w[1] == w[0] + 1);
+
+        let (frequency, interval, count, until, exception_dates) = if is_continuous {
+            // 连续周次，使用简单的WEEKLY重复
+            (
+                "WEEKLY".to_string(),
+                1,
+                None,
+                Some(until_end_time),
+                Vec::new(),
+            )
+        } else {
+            // 非连续周次，计算例外日期
+            let mut exceptions = Vec::new();
+
+            // 找出缺失的周次
+            if let (Some(&first), Some(&last)) = (weeks.first(), weeks.last()) {
+                for week in first..=last {
+                    if !weeks.contains(&week) {
+                        // 计算这一周的课程时间作为例外日期
+                        let weeks_offset = chrono::Duration::weeks((week - first) as i64);
+                        let exception_time = *start_time + weeks_offset;
+                        exceptions.push(exception_time);
+                    }
+                }
+            }
+
+            (
+                "WEEKLY".to_string(),
+                1,
+                None,
+                Some(until_end_time),
+                exceptions,
+            )
+        };
+
+        Ok(RecurrenceRule {
+            frequency,
+            interval,
+            until,
+            count,
+            by_day: Some(vec![weekday]),
+            exception_dates,
+        })
+    }
+
     /// 添加单个课程事件
-    fn add_course_event(&self, ics_content: &mut String, course: &Course) -> Result<()> {
+    fn add_course_event(
+        &self,
+        ics_content: &mut String,
+        course_with_recurrence: &CourseWithRecurrence,
+    ) -> Result<()> {
+        let course = &course_with_recurrence.course;
         let uid = Uuid::new_v4().to_string();
         let dtstamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
 
@@ -92,7 +217,7 @@ impl IcsGenerator {
         }
 
         // 添加重复规则
-        if let Some(ref recurrence) = course.recurrence {
+        if let Some(ref recurrence) = course_with_recurrence.recurrence {
             self.add_recurrence_rule(ics_content, recurrence)?;
         }
 
@@ -113,7 +238,7 @@ impl IcsGenerator {
     /// 构建课程描述信息
     pub fn build_course_description(&self, course: &Course) -> String {
         // 检查是否是考试类型
-        if course.course_type.as_deref() == Some("考试") {
+        if self.is_exam_course(course) {
             self.build_exam_description(course)
         } else {
             self.build_class_description(course)
@@ -122,7 +247,7 @@ impl IcsGenerator {
 
     /// 构建课程标题
     pub fn build_course_title(&self, course: &Course) -> String {
-        if course.course_type.as_deref() == Some("考试") {
+        if self.is_exam_course(course) {
             // 考试类型：[考试类型考试] 课程名 - 地点
             let exam_type = course.exam_type.as_deref().unwrap_or("");
             let location = course.location.as_deref().unwrap_or("");
@@ -238,6 +363,13 @@ impl IcsGenerator {
 
         Ok(())
     }
+}
+
+/// 带重复规则的课程
+#[derive(Debug, Clone)]
+struct CourseWithRecurrence {
+    course: Course,
+    recurrence: Option<RecurrenceRule>,
 }
 
 impl Default for IcsGenerator {
