@@ -269,7 +269,7 @@ impl IcsGenerator {
         let raw_week = course.raw_week.as_deref().unwrap_or("");
 
         // 获取当前周数
-        let current_week = course.current_week.unwrap_or(1);
+        let _current_week = course.current_week.unwrap_or(1);
 
         let formatted_weeks = if raw_week.is_empty() {
             "全学期".to_string()
@@ -278,8 +278,8 @@ impl IcsGenerator {
         };
 
         format!(
-            "{} 任课教师: {}，该课程是{}课，在{}行课，当前是第{}周。",
-            course_id, teacher, course_type, formatted_weeks, current_week
+            "{} 任课教师: {}，该课程是{}课，在{}行课",
+            course_id, teacher, course_type, formatted_weeks
         )
     }
 
