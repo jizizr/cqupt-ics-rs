@@ -5,6 +5,7 @@
 
 pub mod cache;
 pub mod error;
+pub mod holiday;
 pub mod ics;
 pub mod location;
 pub mod providers;
@@ -16,5 +17,5 @@ pub use types::*;
 
 /// Commonly used items
 pub mod prelude {
-    pub use crate::{cache::*, ics::*, location::*, providers::*, types::*};
+    pub use crate::{cache::*, holiday::*, ics::*, location::*, providers::*, types::*};
 }

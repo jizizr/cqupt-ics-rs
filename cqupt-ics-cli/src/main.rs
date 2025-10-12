@@ -54,6 +54,10 @@ enum Commands {
         /// 提醒时间（分钟）
         #[arg(long, default_value = "15")]
         reminder_minutes: u32,
+
+        /// 节假日调休ICS文件路径
+        #[arg(long)]
+        holiday_ics: Option<String>,
     },
 
     /// 验证用户凭据
@@ -131,6 +135,7 @@ async fn main() -> Result<()> {
             calendar_name,
             include_teacher,
             reminder_minutes,
+            holiday_ics,
         } => {
             commands::generate_command(commands::GenerateParams {
                 provider_name: provider,
@@ -141,6 +146,7 @@ async fn main() -> Result<()> {
                 calendar_name,
                 include_teacher,
                 reminder_minutes,
+                holiday_ics,
             })
             .await
         }

@@ -1,9 +1,17 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, time::Duration};
 
 use anyhow::Result;
-use cqupt_ics_core::{ics::IcsGenerator, location::LocationManager, prelude::*};
+use cqupt_ics_core::cache::CacheBackend;
+use cqupt_ics_core::{
+    holiday::HolidayCalendar, ics::IcsGenerator, location::LocationManager, prelude::*,
+};
+use reqwest::Client;
 
-use crate::registry;
+use crate::{cache::FileCache, registry};
+
+const DEFAULT_HOLIDAY_URL: &str = "https://calendars.icloud.com/holidays/cn_zh.ics";
+const HOLIDAY_CACHE_KEY: &str = "holiday:cn_zh";
+const HOLIDAY_CACHE_TTL: Duration = Duration::from_secs(60 * 60 * 12);
 
 /// 生成课程表命令参数
 pub struct GenerateParams {
@@ -15,6 +23,7 @@ pub struct GenerateParams {
     pub calendar_name: Option<String>,
     pub include_teacher: bool,
     pub reminder_minutes: u32,
+    pub holiday_ics: Option<String>,
 }
 
 /// 生成课程表命令
@@ -48,9 +57,13 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("未知的provider: {}", params.provider_name))?;
     // 获取课程数据
     println!("验证用户凭据...");
-    let response = provider.get_courses(&mut request).await?;
+    let mut response = provider.get_courses(&mut request).await?;
     println!("✓ 凭据验证成功");
     println!("✓ 成功获取 {} 门课程", response.courses.len());
+
+    let calendar = load_holiday_calendar(params.holiday_ics.as_ref()).await?;
+    calendar.apply_to_response(&mut response);
+    println!("✓ 已根据节假日调休更新课程表");
     // 生成ICS文件
     println!("生成ICS日历文件...");
     let options = IcsOptions {
@@ -76,6 +89,66 @@ pub async fn generate_command(params: GenerateParams) -> Result<()> {
     println!("✓ ICS文件已保存到: {}", output_file);
 
     Ok(())
+}
+
+async fn load_holiday_calendar(holiday_path: Option<&String>) -> Result<HolidayCalendar> {
+    if let Some(path) = holiday_path {
+        tracing::info!("加载节假日调休信息: {}", path);
+        return HolidayCalendar::from_path(path)
+            .map_err(|e| anyhow::anyhow!("加载节假日ICS失败: {}", e));
+    }
+
+    let url = std::env::var("HOLIDAY_ICS_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_HOLIDAY_URL.to_string());
+
+    tracing::info!("使用节假日调休日历: {}", url);
+
+    let cache = FileCache::with_default_dir("cqupt-ics")
+        .map_err(|e| anyhow::anyhow!("初始化缓存失败: {}", e))?;
+
+    if let Some(bytes) = cache
+        .get_raw(HOLIDAY_CACHE_KEY)
+        .await
+        .map_err(|e| anyhow::anyhow!("读取节假日缓存失败: {}", e))?
+    {
+        tracing::debug!("命中节假日调休缓存");
+        return HolidayCalendar::from_bytes(&bytes)
+            .map_err(|e| anyhow::anyhow!("解析节假日ICS失败: {}", e));
+    }
+
+    let client = Client::builder()
+        .user_agent("cqupt-ics-cli/holiday-loader")
+        .build()
+        .map_err(|e| anyhow::anyhow!("创建HTTP客户端失败: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("请求节假日ICS失败: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "获取节假日ICS失败: HTTP {}",
+            response.status()
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| anyhow::anyhow!("读取节假日ICS内容失败: {}", e))?;
+    let data = bytes.to_vec();
+
+    cache
+        .set_raw(HOLIDAY_CACHE_KEY, &data, HOLIDAY_CACHE_TTL)
+        .await
+        .map_err(|e| anyhow::anyhow!("写入节假日缓存失败: {}", e))?;
+
+    HolidayCalendar::from_bytes(&data).map_err(|e| anyhow::anyhow!("解析节假日ICS失败: {}", e))
 }
 
 /// 验证凭据命令

@@ -30,5 +30,5 @@ async fn main() -> Result<()> {
     }
 
     // 启动服务器
-    server::start_server().await
+    server::start_server(redis_url).await
 }
