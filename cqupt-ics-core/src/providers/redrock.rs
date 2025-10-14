@@ -54,7 +54,7 @@ pub struct RedrockTokenData {
 
 /// Redrock课程信息
 #[allow(dead_code)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 struct RedrockClass {
     #[serde(rename = "hash_day")]
     hash_day: u32,
@@ -106,6 +106,29 @@ struct RedrockExam {
     week: String,
     weekday: String,
     seat: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RedrockCustomScheduleResponse {
+    status: u32,
+    data: Vec<RedrockCustomSchedule>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RedrockCustomSchedule {
+    id: u32,
+    time: u32,
+    title: String,
+    content: String,
+    date: Vec<RedrockCustomScheduleDate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RedrockCustomScheduleDate {
+    begin_lesson: u32,
+    period: u32,
+    day: u32,
+    week: Vec<u32>,
 }
 
 pub struct RedrockProvider {
@@ -254,6 +277,44 @@ impl RedrockProvider {
                 .custom_error(format!("Failed to parse response: {}", e))
         })
     }
+
+    /// 获取自定义日程
+    async fn get_custom_schedule_data(
+        &self,
+        token: &RedrockToken,
+    ) -> Result<RedrockCustomScheduleResponse> {
+        let url = format!("{}/magipoke-reminder/Person/getTransaction", Self::API_ROOT);
+
+        let response = self
+            .base
+            .client
+            .post(&url)
+            .header("App-Version", "74")
+            .bearer_auth(&token.data.token)
+            .send()
+            .await
+            .map_err(|e| self.base.handle_error_req(e))?;
+
+        if !response.status().is_success() {
+            return Err(self
+                .base
+                .custom_error(format!("HTTP {} error", response.status())));
+        }
+
+        let r: RedrockCustomScheduleResponse = response.json().await.map_err(|e| {
+            self.base
+                .custom_error(format!("Failed to parse response: {}", e))
+        })?;
+
+        if r.status != 200 {
+            return Err(self
+                .base
+                .custom_error(format!("API returned error status: {}", r.status)));
+        }
+
+        Ok(r)
+    }
+
     /// 获取课程表数据
     async fn get_class_schedule(
         &self,
@@ -269,13 +330,6 @@ impl RedrockProvider {
                     .custom_error("Semester start date is required".to_string())
             })?
             .start_date;
-
-        println!(
-            "学期开始日期: {}",
-            start_date
-                .with_timezone(&self.timezone())
-                .format("%Y-%m-%d")
-        );
 
         let mut courses = Vec::new();
         let redrock_response = match context.as_ref() {
@@ -341,6 +395,28 @@ impl RedrockProvider {
         Ok((exams, exam_response.now_week))
     }
 
+    async fn get_custom_schedule(
+        &self,
+        request: &mut CourseRequest,
+        token: &RedrockToken,
+    ) -> Result<Vec<Course>> {
+        let start_date = request
+            .semester
+            .as_ref()
+            .ok_or_else(|| {
+                self.base
+                    .custom_error("Semester start date is required".to_string())
+            })?
+            .start_date;
+        let custom_response = self.get_custom_schedule_data(token).await?;
+        let mut courses = Vec::new();
+        for custom in &custom_response.data {
+            let custom_courses = self.convert_custom_schedule_to_course(custom, &start_date, 0)?;
+            courses.extend(custom_courses);
+        }
+        Ok(courses)
+    }
+
     /// 将课程转换为Course结构
     fn convert_class_to_course(
         &self,
@@ -370,9 +446,10 @@ impl RedrockProvider {
             start_time,
             end_time,
             description: Some(format!(
-                "第{}-{}周 第{}-{}节",
-                class.week.first().unwrap_or(&0),
-                class.week.last().unwrap_or(&0),
+                "在第{}{}-{}节行课",
+                // class.week.first().unwrap_or(&0),
+                // class.week.last().unwrap_or(&0),
+                class.raw_week,
                 class.begin_lesson,
                 class.begin_lesson + class.period - 1
             )),
@@ -448,6 +525,51 @@ impl RedrockProvider {
         })
     }
 
+    fn convert_custom_schedule_to_course(
+        &self,
+        custom: &RedrockCustomSchedule,
+        base_date: &DateTime<FixedOffset>,
+        current_week: u32,
+    ) -> Result<Vec<Course>> {
+        let mut courses = Vec::with_capacity(custom.date.len());
+        for item in &custom.date {
+            let (start_time, end_time) = self.calculate_class_time(
+                item.week.first().copied().unwrap_or(1),
+                item.day + 1,
+                item.begin_lesson,
+                item.period,
+                base_date,
+            )?;
+            courses.push(Course {
+                name: custom.title.clone(),
+                code: Some(custom.id.to_string()),
+                teacher: None,
+                location: None,
+                start_time,
+                end_time,
+                description: Some(format!("自定义日程: {}", custom.content)),
+                course_type: None,
+                credits: None,
+
+                // 提供原始数据供 ICS 模块使用
+                weeks: Some(item.week.clone()),
+                weekday: Some(item.day),
+                begin_lesson: Some(item.begin_lesson),
+                lesson_duration: Some(item.period),
+
+                // 显示相关字段
+                raw_week: None,
+                current_week: Some(current_week),
+
+                // 考试相关字段（普通课程为空）
+                exam_type: None,
+                seat: None,
+                status: None,
+                week: None,
+            });
+        }
+        Ok(courses)
+    }
     /// 计算课程的具体上课时间
     fn calculate_class_time(
         &self,
@@ -693,9 +815,17 @@ impl Provider for RedrockProvider {
             })
             .unwrap_or_else(|_| (Vec::new(), 0));
 
+        let custom_courses = self
+            .get_custom_schedule(request, token)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to get custom schedule: {}", e);
+                Vec::new()
+            });
         // 合并课程和考试
         let mut all_courses = courses;
         all_courses.extend(exams);
+        all_courses.extend(custom_courses);
 
         tracing::info!(
             "Successfully fetched {} courses/exams from redrock (current week: {})",

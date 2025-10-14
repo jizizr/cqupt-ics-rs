@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use chrono::{DateTime, FixedOffset, Utc};
 use uuid::Uuid;
 
@@ -254,33 +256,40 @@ impl IcsGenerator {
             format!("[{}考试] {} - {}", exam_type, course.name, location)
         } else {
             // 普通课程：课程名 - 地点
-            let location = course.location.as_deref().unwrap_or("");
-            format!("{} - {}", course.name, location)
+            if let Some(location) = course.location.as_ref().filter(|l| !l.is_empty()) {
+                let location = self.location_manager.get_location_with_geo(location);
+                format!("{} - {}", course.name, location)
+            } else {
+                course.name.to_string()
+            }
         }
     }
 
     /// 构建普通课程描述
     pub fn build_class_description(&self, course: &Course) -> String {
-        let course_id = course.code.as_deref().unwrap_or("未知");
-        let teacher = course.teacher.as_deref().unwrap_or("未知");
-        let course_type = course.course_type.as_deref().unwrap_or("未知");
+        let mut segments = Vec::new();
 
-        // 获取上课周次信息
-        let raw_week = course.raw_week.as_deref().unwrap_or("");
+        if let Some(code) = course.code.as_ref().filter(|c| !c.is_empty()) {
+            segments.push(code.to_string());
+        }
 
-        // 获取当前周数
-        let _current_week = course.current_week.unwrap_or(1);
+        if let Some(teacher) = course.teacher.as_ref().filter(|t| !t.is_empty()) {
+            segments.push(format!("任课教师: {}", teacher));
+        }
 
-        let formatted_weeks = if raw_week.is_empty() {
-            "全学期".to_string()
+        if let Some(course_type) = course.course_type.as_ref().filter(|t| !t.is_empty()) {
+            segments.push(format!("该课程是{}课", course_type));
+        }
+
+        if let Some(desc) = course.description.as_ref().filter(|d| !d.is_empty()) {
+            segments.push(desc.to_string());
+        }
+
+        if segments.is_empty() {
+            "暂无课程详情".to_string()
         } else {
-            raw_week.replace(',', "、")
-        };
-
-        format!(
-            "{} 任课教师: {}，该课程是{}课，在{}行课",
-            course_id, teacher, course_type, formatted_weeks
-        )
+            segments.join("，")
+        }
     }
 
     /// 构建考试描述
