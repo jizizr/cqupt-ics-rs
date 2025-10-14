@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use chrono::{DateTime, FixedOffset, Utc};
 use uuid::Uuid;
 
