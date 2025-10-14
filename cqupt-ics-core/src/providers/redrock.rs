@@ -114,6 +114,7 @@ struct RedrockCustomScheduleResponse {
     data: Vec<RedrockCustomSchedule>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct RedrockCustomSchedule {
     id: u32,
