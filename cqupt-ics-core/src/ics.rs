@@ -1,4 +1,5 @@
 use chrono::{DateTime, FixedOffset, Utc};
+use std::borrow::Cow;
 use uuid::Uuid;
 
 use crate::{
@@ -22,7 +23,7 @@ impl IcsGenerator {
     /// 生成ICS日历内容
     pub fn generate(&self, response: &CourseResponse) -> Result<String> {
         // 首先处理课程，智能创建重复规则
-        let processed_courses = self.process_courses(&response.courses, &response.semester)?;
+        let processed_courses = self.process_courses(&response.courses)?;
 
         let mut ics_content = String::new();
 
@@ -49,11 +50,7 @@ impl IcsGenerator {
     }
 
     /// 处理课程列表，智能创建重复规则
-    fn process_courses(
-        &self,
-        courses: &[Course],
-        semester: &crate::Semester,
-    ) -> Result<Vec<CourseWithRecurrence>> {
+    fn process_courses(&self, courses: &[Course]) -> Result<Vec<CourseWithRecurrence>> {
         let mut processed = Vec::new();
 
         for course in courses {
@@ -65,13 +62,8 @@ impl IcsGenerator {
                 }
             } else if let (Some(weeks), Some(weekday)) = (&course.weeks, course.weekday) {
                 // 创建重复规则
-                let recurrence = self.create_recurrence_rule(
-                    weeks,
-                    weekday,
-                    &course.start_time,
-                    &course.end_time,
-                    semester,
-                )?;
+                let recurrence =
+                    self.create_recurrence_rule(Cow::Borrowed(weeks), weekday, &course.start_time)?;
 
                 CourseWithRecurrence {
                     course: course.clone(),
@@ -103,29 +95,32 @@ impl IcsGenerator {
     /// 创建重复规则
     fn create_recurrence_rule(
         &self,
-        weeks: &[u32],
+        mut weeks: Cow<[u32]>,
         weekday: u32,
         start_time: &DateTime<FixedOffset>,
-        _end_time: &DateTime<FixedOffset>,
-        _semester: &crate::Semester,
     ) -> Result<RecurrenceRule> {
         if weeks.is_empty() {
             return Err(Error::Config("Course has no week data".to_string()));
         }
-
+        if !weeks.is_sorted() {
+            weeks.to_mut().sort();
+        }
         // 计算学期结束时间（最后一周的课程结束时间）
         let last_week = *weeks.last().unwrap();
         let weeks_duration = chrono::Duration::weeks(last_week as i64 - 1);
         let until_end_time = *start_time + weeks_duration;
 
-        // 检查是否是连续的周次
-        let is_continuous = weeks.len() > 1 && weeks.windows(2).all(|w| w[1] == w[0] + 1);
+        // 检查是否间隔n周
+        let is_continuous = weeks.len() > 1 && {
+            let gap = weeks[1] - weeks[0];
+            weeks.windows(2).all(|w| w[1] == w[0] + gap)
+        };
 
         let (frequency, interval, count, until, exception_dates) = if is_continuous {
             // 连续周次，使用简单的WEEKLY重复
             (
                 "WEEKLY".to_string(),
-                1,
+                weeks[1] - weeks[0],
                 None,
                 Some(until_end_time),
                 Vec::new(),
@@ -295,7 +290,7 @@ impl IcsGenerator {
         // 获取考试相关信息
         let seat = course.seat.as_deref().unwrap_or("待定");
         let status = course.status.as_deref().unwrap_or("");
-        let week = course.week.as_deref().unwrap_or("");
+        let week = course.raw_week.as_deref().unwrap_or("");
 
         let test_status = if status.is_empty() { "正常" } else { status };
 
@@ -383,4 +378,41 @@ impl Default for IcsGenerator {
     fn default() -> Self {
         Self::new(IcsOptions::default())
     }
+}
+
+#[test]
+fn test_rrule_generation() {
+    use chrono::{FixedOffset, TimeZone};
+    let generator = IcsGenerator::default();
+
+    let start_time = FixedOffset::east_opt(8 * 3600)
+        .unwrap()
+        .with_ymd_and_hms(2024, 9, 2, 10, 0, 0)
+        .unwrap();
+
+    // 测试连续周次
+    let weekss = vec![vec![1, 3, 5, 7, 9], vec![2, 4]];
+    for weeks in weekss {
+        let recurrence = generator
+            .create_recurrence_rule(Cow::Owned(weeks), 1, &start_time)
+            .unwrap();
+        assert_eq!(recurrence.frequency, "WEEKLY");
+        assert_eq!(recurrence.interval, 2);
+        assert!(recurrence.until.is_some());
+        assert!(recurrence.count.is_none());
+        assert_eq!(recurrence.by_day, Some(vec![1]));
+        assert!(recurrence.exception_dates.is_empty());
+    }
+
+    // 测试非连续周次
+    let weeks = vec![1, 2, 4, 5, 7];
+    let recurrence = generator
+        .create_recurrence_rule(Cow::Owned(weeks), 1, &start_time)
+        .unwrap();
+    assert_eq!(recurrence.frequency, "WEEKLY");
+    assert_eq!(recurrence.interval, 1);
+    assert!(recurrence.until.is_some());
+    assert!(recurrence.count.is_none());
+    assert_eq!(recurrence.by_day, Some(vec![1]));
+    assert_eq!(recurrence.exception_dates.len(), 2); // 第3和第6周缺失
 }
