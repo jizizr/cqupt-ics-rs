@@ -64,8 +64,6 @@ pub struct Course {
     pub seat: Option<String>,
     /// 考试状态
     pub status: Option<String>,
-    /// 考试周数
-    pub week: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

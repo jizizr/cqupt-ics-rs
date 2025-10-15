@@ -629,7 +629,6 @@ mod tests {
                     exam_type: None,
                     seat: None,
                     status: None,
-                    week: None,
                 },
                 Course {
                     name: "操作系统".to_string(),
@@ -650,7 +649,6 @@ mod tests {
                     exam_type: None,
                     seat: None,
                     status: None,
-                    week: None,
                 },
             ],
             semester: semester.clone(),

@@ -471,7 +471,6 @@ impl RedrockProvider {
             exam_type: None,
             seat: None,
             status: None,
-            week: None,
         })
     }
 
@@ -513,16 +512,13 @@ impl RedrockProvider {
             weekday: None,
             begin_lesson: None,
             lesson_duration: None,
-
-            // 显示相关字段（考试为空）
-            raw_week: None,
             current_week: None,
 
             // 考试相关字段
             exam_type: Some(exam.exam_type.clone()),
             seat: exam.seat.clone(),
             status: Some(exam.status.clone()),
-            week: Some(exam.week.clone()),
+            raw_week: Some(exam.week.clone()),
         })
     }
 
@@ -566,7 +562,6 @@ impl RedrockProvider {
                 exam_type: None,
                 seat: None,
                 status: None,
-                week: None,
             });
         }
         Ok(courses)
