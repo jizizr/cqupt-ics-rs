@@ -445,7 +445,7 @@ fn create_makeup_course(
     let makeup_fmt = makeup_date.format("%Y-%m-%d");
 
     let note = format!("调休补课：原日期 {}", rest_fmt);
-    course.description = match course.description {
+    course.note = match course.note {
         Some(ref desc) if !desc.is_empty() => Some(format!("{desc}\n{note}")),
         _ => Some(note),
     };
@@ -468,7 +468,7 @@ fn handle_single_occurrence_course(
         let mut moved = course.clone();
         moved.start_time = course.start_time + delta;
         moved.end_time = course.end_time + delta;
-        moved.description = match moved.description {
+        moved.note = match moved.note {
             Some(ref desc) if !desc.is_empty() => Some(format!(
                 "{desc}\n调休补课：原日期 {}",
                 date.format("%Y-%m-%d")
@@ -617,7 +617,7 @@ mod tests {
                     location: None,
                     start_time: tz.with_ymd_and_hms(2025, 1, 6, 8, 0, 0).unwrap(),
                     end_time: tz.with_ymd_and_hms(2025, 1, 6, 10, 0, 0).unwrap(),
-                    description: None,
+                    note: None,
                     course_type: None,
                     credits: None,
                     weeks: Some(vec![1, 2, 3, 4, 5, 6]),
@@ -637,7 +637,7 @@ mod tests {
                     location: None,
                     start_time: tz.with_ymd_and_hms(2025, 1, 7, 14, 0, 0).unwrap(),
                     end_time: tz.with_ymd_and_hms(2025, 1, 7, 16, 0, 0).unwrap(),
-                    description: None,
+                    note: None,
                     course_type: None,
                     credits: None,
                     weeks: Some(vec![1, 2, 3, 4, 5]),

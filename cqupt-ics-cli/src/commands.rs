@@ -1,9 +1,9 @@
 use std::{collections::HashMap, fs, time::Duration};
 
 use anyhow::Result;
-use cqupt_ics_core::cache::CacheBackend;
 use cqupt_ics_core::{
-    holiday::HolidayCalendar, ics::IcsGenerator, location::LocationManager, prelude::*,
+    cache::CacheBackend, holiday::HolidayCalendar, ics::IcsGenerator, location::LocationManager,
+    prelude::*,
 };
 use reqwest::Client;
 

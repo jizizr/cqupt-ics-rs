@@ -35,8 +35,8 @@ pub struct Course {
     pub start_time: DateTime<FixedOffset>,
     /// 结束时间 (第一次上课的结束时间)
     pub end_time: DateTime<FixedOffset>,
-    /// 课程描述
-    pub description: Option<String>,
+    /// 课程备注
+    pub note: Option<String>,
     pub course_type: Option<String>,
     /// 学分
     pub credits: Option<f32>,

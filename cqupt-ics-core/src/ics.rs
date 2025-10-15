@@ -274,8 +274,21 @@ impl IcsGenerator {
             segments.push(format!("该课程是{}课", course_type));
         }
 
-        if let Some(desc) = course.description.as_ref().filter(|d| !d.is_empty()) {
-            segments.push(desc.to_string());
+        if let (Some(week), Some(begin), Some(duration)) = (
+            course.raw_week.as_ref(),
+            course.begin_lesson,
+            course.lesson_duration,
+        ) {
+            segments.push(format!(
+                "在第{}{}-{}节行课",
+                week,
+                begin,
+                begin + duration - 1
+            ));
+        }
+
+        if let Some(note) = course.note.as_ref().filter(|n| !n.is_empty()) {
+            segments.push(format!("备注: {}", note));
         }
 
         if segments.is_empty() {

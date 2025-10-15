@@ -446,14 +446,7 @@ impl RedrockProvider {
             location: Some(class.classroom.clone()),
             start_time,
             end_time,
-            description: Some(format!(
-                "在第{}{}-{}节行课",
-                // class.week.first().unwrap_or(&0),
-                // class.week.last().unwrap_or(&0),
-                class.raw_week,
-                class.begin_lesson,
-                class.begin_lesson + class.period - 1
-            )),
+            note: None,
             course_type: Some(class.course_type.clone()),
             credits: None,
 
@@ -494,8 +487,6 @@ impl RedrockProvider {
             semester_start,
         )?;
 
-        let description = format!("考试 - {} ({})", exam.course, exam.status);
-
         Ok(Course {
             name: format!("{} (考试)", exam.course),
             code: None,
@@ -503,7 +494,7 @@ impl RedrockProvider {
             location: Some(exam.classroom.clone()),
             start_time,
             end_time,
-            description: Some(description),
+            note: None,
             course_type: Some("考试".to_string()),
             credits: None,
 
@@ -544,7 +535,7 @@ impl RedrockProvider {
                 location: None,
                 start_time,
                 end_time,
-                description: Some(format!("自定义日程: {}", custom.content)),
+                note: Some(format!("自定义日程: {}", custom.content)),
                 course_type: None,
                 credits: None,
 
