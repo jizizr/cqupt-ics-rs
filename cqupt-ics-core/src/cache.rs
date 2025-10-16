@@ -59,34 +59,26 @@ impl<C: CacheBackend> CacheManager<C> {
         Self { cache }
     }
 
-    pub fn token_cache_key(key: &str) -> String {
-        format!("token:{}", key)
-    }
-
     pub async fn cache_token<T>(&self, key: &str, token: &T, ttl: Duration) -> Result<()>
     where
         T: Serialize + Send + Sync,
     {
-        let key = Self::token_cache_key(key);
-        self.cache.set(&key, token, ttl).await
+        self.cache.set(key, token, ttl).await
     }
 
     pub async fn get_cached_token<T>(&self, key: &str) -> Result<Option<T>>
     where
         T: DeserializeOwned + Send,
     {
-        let key = Self::token_cache_key(key);
-        self.cache.get(&key).await
+        self.cache.get(key).await
     }
 
     pub async fn remove_token_cache(&self, key: &str) -> Result<()> {
-        let key = Self::token_cache_key(key);
-        self.cache.delete(&key).await
+        self.cache.delete(key).await
     }
 
     pub async fn has_token_cache(&self, key: &str) -> Result<bool> {
-        let key = Self::token_cache_key(key);
-        self.cache.exists(&key).await
+        self.cache.exists(key).await
     }
 
     pub async fn set<T>(&self, key: &str, value: &T, ttl: Duration) -> Result<()>
