@@ -63,7 +63,12 @@ impl IcsGenerator {
                 && weeks.len() > 1
             {
                 // 创建重复规则
-                let recurrence = self.create_recurrence_rule(weeks, weekday, &course.start_time)?;
+                let recurrence = self.create_recurrence_rule(
+                    weeks,
+                    course.off_weeks.as_deref(),
+                    weekday,
+                    &course.start_time,
+                )?;
 
                 CourseWithRecurrence {
                     course: course.clone(),
@@ -96,6 +101,7 @@ impl IcsGenerator {
     fn create_recurrence_rule<'a, W: Into<Cow<'a, [u32]>>>(
         &self,
         weeks: W,
+        off_weeks: Option<&[u32]>,
         weekday: u32,
         start_time: &DateTime<FixedOffset>,
     ) -> Result<RecurrenceRule> {
@@ -106,7 +112,16 @@ impl IcsGenerator {
         let last_week = *weeks.last().unwrap();
         let weeks_duration = chrono::Duration::weeks(last_week as i64 - 1);
         let until_end_time = *start_time + weeks_duration;
-
+        let mut exceptions = Vec::new();
+        if let Some(off_weeks) = off_weeks {
+            for &week in off_weeks {
+                if weeks.contains(&week) {
+                    let weeks_offset = chrono::Duration::weeks((week - weeks[0]) as i64);
+                    let exception_time = *start_time + weeks_offset;
+                    exceptions.push(exception_time);
+                }
+            }
+        }
         let (frequency, interval, count, until, exception_dates) = if let Some(gap) = wp.gap {
             // 连续周次，使用简单的WEEKLY重复
             (
@@ -114,11 +129,10 @@ impl IcsGenerator {
                 gap,
                 None,
                 Some(until_end_time),
-                Vec::new(),
+                exceptions,
             )
         } else {
             // 非连续周次，计算例外日期
-            let mut exceptions = Vec::new();
 
             // 找出缺失的周次
             if let (Some(&first), Some(&last)) = (weeks.first(), weeks.last()) {
@@ -465,7 +479,7 @@ fn test_rrule_generation() {
     let weekss = vec![vec![1, 3, 5, 7, 9], vec![2, 4]];
     for weeks in weekss {
         let recurrence = generator
-            .create_recurrence_rule(Cow::Owned(weeks), 1, &start_time)
+            .create_recurrence_rule(Cow::Owned(weeks), None, 1, &start_time)
             .unwrap();
         assert_eq!(recurrence.frequency, "WEEKLY");
         assert_eq!(recurrence.interval, 2);
@@ -478,7 +492,7 @@ fn test_rrule_generation() {
     // 测试非连续周次
     let weeks = vec![1, 2, 4, 5, 7];
     let recurrence = generator
-        .create_recurrence_rule(Cow::Owned(weeks), 1, &start_time)
+        .create_recurrence_rule(Cow::Owned(weeks), None, 1, &start_time)
         .unwrap();
     assert_eq!(recurrence.frequency, "WEEKLY");
     assert_eq!(recurrence.interval, 1);

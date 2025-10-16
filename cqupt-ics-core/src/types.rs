@@ -21,7 +21,7 @@ pub struct RecurrenceRule {
 }
 
 /// 课程信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Course {
     /// 课程名称
     pub name: String,
@@ -44,6 +44,10 @@ pub struct Course {
     // 原始课程数据，用于ICS模块创建重复规则
     /// 上课周次列表 (如 [1,3,5,7,9])
     pub weeks: Option<Vec<u32>>,
+
+    /// 放假周次列表 (如 [11,12,13])
+    pub off_weeks: Option<Vec<u32>>,
+
     /// 星期几 (1-7, 1=Monday)
     pub weekday: Option<u32>,
     /// 开始节次

@@ -446,9 +446,7 @@ impl RedrockProvider {
             location: Some(class.classroom.clone()),
             start_time,
             end_time,
-            note: None,
             course_type: Some(class.course_type.clone()),
-            credits: None,
 
             // 提供原始数据供 ICS 模块使用
             weeks: Some(class.week.clone()),
@@ -460,10 +458,7 @@ impl RedrockProvider {
             raw_week: Some(class.raw_week.clone()),
             current_week: Some(current_week),
 
-            // 考试相关字段（普通课程为空）
-            exam_type: None,
-            seat: None,
-            status: None,
+            ..Default::default()
         })
     }
 
@@ -489,27 +484,17 @@ impl RedrockProvider {
 
         Ok(Course {
             name: format!("{} (考试)", exam.course),
-            code: None,
-            teacher: None,
             location: Some(exam.classroom.clone()),
             start_time,
             end_time,
-            note: None,
             course_type: Some("考试".to_string()),
-            credits: None,
-
-            // 考试不提供重复规则数据
-            weeks: None,
-            weekday: None,
-            begin_lesson: None,
-            lesson_duration: None,
-            current_week: None,
 
             // 考试相关字段
             exam_type: Some(exam.exam_type.clone()),
             seat: exam.seat.clone(),
             status: Some(exam.status.clone()),
             raw_week: Some(exam.week.clone()),
+            ..Default::default()
         })
     }
 
@@ -531,28 +516,19 @@ impl RedrockProvider {
             courses.push(Course {
                 name: custom.title.clone(),
                 code: Some(custom.id.to_string()),
-                teacher: None,
-                location: None,
+
                 start_time,
                 end_time,
                 note: Some(format!("自定义日程: {}", custom.content)),
-                course_type: None,
-                credits: None,
 
                 // 提供原始数据供 ICS 模块使用
                 weeks: Some(item.week.clone()),
                 weekday: Some(item.day),
                 begin_lesson: Some(item.begin_lesson),
                 lesson_duration: Some(item.period),
-
-                // 显示相关字段
-                raw_week: None,
                 current_week: Some(current_week),
 
-                // 考试相关字段（普通课程为空）
-                exam_type: None,
-                seat: None,
-                status: None,
+                ..Default::default()
             });
         }
         Ok(courses)

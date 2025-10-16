@@ -1,12 +1,11 @@
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime};
+use ical::parser::ical::{IcalParser, component::IcalEvent};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
     io::{BufReader, Read},
     path::Path,
 };
-
-use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime};
-use ical::parser::ical::{IcalParser, component::IcalEvent};
 
 use crate::{Course, CourseResponse, Error, Result, Semester};
 
@@ -109,85 +108,49 @@ impl HolidayCalendar {
         if courses.is_empty() {
             return;
         }
-
-        let mut adjusted_courses: Vec<Course> = Vec::with_capacity(courses.len());
-        let mut makeup_courses: Vec<Course> = Vec::new();
-
-        for course in courses.drain(..) {
-            let (Some(weeks), Some(weekday)) = (course.weeks.clone(), course.weekday) else {
-                handle_single_occurrence_course(
-                    &self.rest_to_makeup,
-                    &self.rest_days,
-                    &mut adjusted_courses,
-                    &mut makeup_courses,
-                    course,
-                );
+        let len = courses.len();
+        for i in 0..len {
+            let (Some(weeks), Some(weekday)) = (courses[i].weeks.take(), courses[i].weekday) else {
+                handle_single_occurrence_course(&self.rest_to_makeup, courses, i);
                 continue;
             };
 
             if weeks.is_empty() {
-                handle_single_occurrence_course(
-                    &self.rest_to_makeup,
-                    &self.rest_days,
-                    &mut adjusted_courses,
-                    &mut makeup_courses,
-                    course,
-                );
+                handle_single_occurrence_course(&self.rest_to_makeup, courses, i);
                 continue;
             }
 
-            let mut course = course;
-            let template = course.clone();
             let original_first_week = weeks.first().copied().unwrap();
-            let original_start = course.start_time;
-            let original_end = course.end_time;
-
-            let mut retained_weeks: Vec<u32> = Vec::with_capacity(weeks.len());
-
-            for &week in &weeks {
-                let occurrence_date = occurrence_date_for(semester, week, weekday);
+            let original_start = courses[i].start_time;
+            let original_end: DateTime<FixedOffset> = courses[i].end_time;
+            let mut off_weeks = vec![];
+            for week in weeks.iter().copied() {
+                let occurrence_date: NaiveDate = occurrence_date_for(semester, week, weekday);
                 if self.rest_days.contains(&occurrence_date) {
                     if let Some(makeup_date) = self.rest_to_makeup.get(&occurrence_date) {
                         let occurrence_start =
                             shift_weeks(original_start, week, original_first_week);
                         let occurrence_end = shift_weeks(original_end, week, original_first_week);
                         let makeup_course = create_makeup_course(
-                            &template,
+                            &courses[i],
                             occurrence_start,
                             occurrence_end,
                             occurrence_date,
                             *makeup_date,
                         );
-                        makeup_courses.push(makeup_course);
+                        courses.push(makeup_course);
                     }
-                    continue;
+                    off_weeks.push(week);
                 }
-
-                retained_weeks.push(week);
             }
-
-            if retained_weeks.is_empty() {
-                continue;
-            }
-
-            retained_weeks.sort_unstable();
-            let new_first_week = retained_weeks[0];
-            if new_first_week != original_first_week {
-                let diff = new_first_week as i64 - original_first_week as i64;
-                course.start_time = original_start + Duration::weeks(diff);
-                course.end_time = original_end + Duration::weeks(diff);
-            }
-
-            course.weeks = Some(retained_weeks);
-            adjusted_courses.push(course);
+            let course = &mut courses[i];
+            course.weeks = Some(weeks);
+            course.off_weeks = if off_weeks.is_empty() {
+                None
+            } else {
+                Some(off_weeks)
+            };
         }
-
-        let mut final_courses = Vec::with_capacity(adjusted_courses.len() + makeup_courses.len());
-        final_courses.extend(adjusted_courses);
-        final_courses.extend(makeup_courses);
-        final_courses.sort_by(|a, b| a.start_time.cmp(&b.start_time));
-
-        *courses = final_courses;
     }
 
     fn build(groups: BTreeMap<String, HolidayGroup>) -> Result<Self> {
@@ -456,11 +419,10 @@ fn create_makeup_course(
 
 fn handle_single_occurrence_course(
     rest_to_makeup: &HashMap<NaiveDate, NaiveDate>,
-    rest_days: &BTreeSet<NaiveDate>,
-    retained: &mut Vec<Course>,
-    makeup: &mut Vec<Course>,
-    course: Course,
+    courses: &mut Vec<Course>,
+    index: usize,
 ) {
+    let course = &courses[index];
     let date = course.start_time.date_naive();
     if let Some(makeup_date) = rest_to_makeup.get(&date) {
         let diff_days = makeup_date.signed_duration_since(date).num_days();
@@ -480,15 +442,8 @@ fn handle_single_occurrence_course(
             date.format("%Y-%m-%d"),
             makeup_date.format("%Y-%m-%d")
         ));
-        makeup.push(moved);
-        return;
+        courses.push(moved);
     }
-
-    if rest_days.contains(&date) {
-        return;
-    }
-
-    retained.push(course);
 }
 
 fn cluster_dates(dates: &BTreeSet<NaiveDate>, max_gap_days: i64) -> Vec<Vec<NaiveDate>> {
@@ -612,43 +567,19 @@ mod tests {
             courses: vec![
                 Course {
                     name: "软件工程导论".to_string(),
-                    code: None,
-                    teacher: None,
-                    location: None,
                     start_time: tz.with_ymd_and_hms(2025, 1, 6, 8, 0, 0).unwrap(),
                     end_time: tz.with_ymd_and_hms(2025, 1, 6, 10, 0, 0).unwrap(),
-                    note: None,
-                    course_type: None,
-                    credits: None,
                     weeks: Some(vec![1, 2, 3, 4, 5, 6]),
                     weekday: Some(1),
-                    begin_lesson: None,
-                    lesson_duration: None,
-                    raw_week: None,
-                    current_week: None,
-                    exam_type: None,
-                    seat: None,
-                    status: None,
+                    ..Default::default()
                 },
                 Course {
                     name: "操作系统".to_string(),
-                    code: None,
-                    teacher: None,
-                    location: None,
                     start_time: tz.with_ymd_and_hms(2025, 1, 7, 14, 0, 0).unwrap(),
                     end_time: tz.with_ymd_and_hms(2025, 1, 7, 16, 0, 0).unwrap(),
-                    note: None,
-                    course_type: None,
-                    credits: None,
                     weeks: Some(vec![1, 2, 3, 4, 5]),
                     weekday: Some(2),
-                    begin_lesson: None,
-                    lesson_duration: None,
-                    raw_week: None,
-                    current_week: None,
-                    exam_type: None,
-                    seat: None,
-                    status: None,
+                    ..Default::default()
                 },
             ],
             semester: semester.clone(),
@@ -660,9 +591,9 @@ mod tests {
         let monday_course = response
             .courses
             .iter()
-            .find(|course| course.name == "软件工程导论" && course.weeks.is_some())
+            .find(|course| course.name == "软件工程导论" && course.off_weeks.is_some())
             .expect("monday course missing");
-        assert!(!monday_course.weeks.as_ref().unwrap().contains(&5));
+        assert!(monday_course.off_weeks.as_ref().unwrap().contains(&5));
 
         let makeup_monday = response
             .courses
@@ -683,9 +614,9 @@ mod tests {
         let tuesday_course = response
             .courses
             .iter()
-            .find(|course| course.name == "操作系统" && course.weeks.is_some())
+            .find(|course| course.name == "操作系统" && course.off_weeks.is_some())
             .expect("tuesday course missing");
-        assert!(!tuesday_course.weeks.as_ref().unwrap().contains(&5));
+        assert!(tuesday_course.off_weeks.as_ref().unwrap().contains(&5));
 
         let makeup_tuesday = response
             .courses

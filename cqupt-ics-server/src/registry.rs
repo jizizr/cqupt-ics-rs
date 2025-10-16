@@ -15,6 +15,7 @@ pub(crate) async fn init_with_redis(
         )
         .into_static(),
     );
+    
     p.register(
         Wrapper::new(
             WecquptProvider::new(),

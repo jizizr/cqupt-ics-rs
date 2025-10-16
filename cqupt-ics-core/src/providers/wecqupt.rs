@@ -451,16 +451,16 @@ impl WecquptProvider {
             end_time,
             note: description,
             course_type,
-            credits: None,
             weeks: Some(weeks),
             weekday: Some(weekday),
             begin_lesson,
             lesson_duration,
-            raw_week: None,
             current_week: Some(time_info.current_week),
             exam_type,
             seat,
             status,
+
+            ..Default::default()
         })
     }
 
