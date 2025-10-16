@@ -241,7 +241,6 @@ impl IcsGenerator {
         } else {
             // 普通课程：课程名 - 地点
             if let Some(location) = course.location.as_ref().filter(|l| !l.is_empty()) {
-                let location = self.location_manager.get_location_with_geo(location);
                 format!("{} - {}", course.name, location)
             } else {
                 course.name.to_string()
