@@ -870,12 +870,6 @@ impl Provider for RedrockProvider {
         Ok(refreshed_token)
     }
 
-    async fn logout(&self, token: &Self::Token) -> Result<()> {
-        // Redrock provider doesn't require explicit logout
-        let _ = token; // 避免未使用参数警告
-        Ok(())
-    }
-
     fn token_ttl(&self) -> std::time::Duration {
         std::time::Duration::from_secs(3600 * 24 * 3)
     }

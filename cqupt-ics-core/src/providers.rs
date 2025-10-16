@@ -170,9 +170,6 @@ pub trait Provider: Send + Sync {
         token: &Self::Token,
     ) -> Result<chrono::DateTime<FixedOffset>>;
 
-    /// Logout and invalidate token
-    async fn logout(&self, token: &Self::Token) -> Result<()>;
-
     /// Token TTL
     fn token_ttl(&self) -> Duration {
         Duration::from_secs(3600 * 24) // 24 hours default
@@ -195,7 +192,7 @@ pub trait ProviderWrapper: Send + Sync {
     async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse>;
 
     /// Logout
-    async fn logout(&self) -> Result<()>;
+    async fn logout(&self, request: &CourseRequest) -> Result<()>;
 }
 
 pub trait IntoStatic: Sized {
@@ -269,6 +266,20 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> Wrapper<P, C> {
 
         Ok(token)
     }
+    async fn get_courses_once(&self, request: &mut CourseRequest) -> Result<CourseResponse> {
+        let token = self.get_or_create_token(request).await?;
+        let mut c: Context<P::ContextType> = Context::default();
+        if request.semester.is_none() {
+            let sem = self
+                .provider
+                .get_semester_start(c.as_param(), request, &token)
+                .await?;
+            request.semester = Some(crate::Semester { start_date: sem });
+        }
+        self.provider
+            .get_courses(c.as_param(), request, &token)
+            .await
+    }
 }
 
 #[async_trait]
@@ -287,23 +298,20 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> ProviderWrapper for Wrapp
     }
 
     async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse> {
-        let token = self.get_or_create_token(request).await?;
-        let mut c: Context<P::ContextType> = Context::default();
-        if request.semester.is_none() {
-            let sem = self
-                .provider
-                .get_semester_start(c.as_param(), request, &token)
-                .await?;
-            request.semester = Some(crate::Semester { start_date: sem });
+        match self.get_courses_once(request).await {
+            Ok(courses) => Ok(courses),
+            Err(_) => {
+                // On error, clear the token cache and retry once
+                self.logout(request).await?;
+                self.get_courses_once(request).await
+            }
         }
-        self.provider
-            .get_courses(c.as_param(), request, &token)
-            .await
     }
 
-    async fn logout(&self) -> Result<()> {
-        // Clear all cached tokens for this provider
-        self.cache_manager.clear().await?;
+    async fn logout(&self, request: &CourseRequest) -> Result<()> {
+        self.cache_manager
+            .remove_token_cache(&self.token_cache_key(request))
+            .await?;
         Ok(())
     }
 }
