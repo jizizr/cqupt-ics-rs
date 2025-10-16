@@ -44,9 +44,14 @@ regex = "1"
 async-trait = "0.1"
 base64 = "0.22"
 ical = "0.11"
+rsa = { version = "0.9", features = ["pem"] }
 
 # Database/Cache
-redis = { version = "0.32", features = ["aio", "tokio-comp"] }
+redis = { version = "0.32", features = [
+    "aio",
+    "tokio-comp",
+    "connection-manager",
+] }
 
 # Serialization for dynamic dispatch
 typetag = "0.2"

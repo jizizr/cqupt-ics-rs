@@ -29,6 +29,9 @@ pub enum Error {
     #[error("Network timeout")]
     Timeout,
 
+    #[error("RSA Error: {0}")]
+    Rsa(#[from] rsa::errors::Error),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

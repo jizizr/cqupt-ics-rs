@@ -1,5 +1,6 @@
 pub mod base;
 pub mod redrock;
+pub mod wecqupt;
 
 use std::{collections::HashMap, time::Duration};
 
