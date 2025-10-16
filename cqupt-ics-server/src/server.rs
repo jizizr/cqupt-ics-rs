@@ -1,12 +1,14 @@
 use std::{env, net::SocketAddr};
-
 use anyhow::Result;
 use tokio::net::TcpListener;
 
 use crate::handlers::create_app;
 
-pub async fn start_server(redis_url: String) -> Result<()> {
-    let app = create_app(&redis_url)
+pub async fn start_server(
+    redis_manager: &redis::aio::ConnectionManager,
+    registry: cqupt_ics_core::prelude::ProviderRegistry,
+) -> Result<()> {
+    let app = create_app(redis_manager, registry)
         .await
         .map_err(|e| anyhow::anyhow!("初始化应用失败: {}", e))?;
 

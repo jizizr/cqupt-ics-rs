@@ -3,9 +3,9 @@ mod handlers;
 mod registry;
 mod server;
 
-use std::env;
-
 use anyhow::Result;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
+use std::env;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -22,13 +22,17 @@ async fn main() -> Result<()> {
     // 获取Redis URL
     let redis_url = env::var("REDIS_URL")
         .map_err(|_| anyhow::anyhow!("REDIS_URL environment variable is required"))?;
+    let client = redis::Client::open(redis_url).expect("Invalid Redis URL");
+    let cfg = ConnectionManagerConfig::default().set_automatic_resubscription();
+    let manager = ConnectionManager::new_with_config(client, cfg)
+        .await
+        .expect("Init Redis Connection Manager failed");
 
     // 初始化Provider注册表
-    if let Err(e) = registry::init_with_redis(&redis_url).await {
-        tracing::error!("Failed to initialize provider registry: {}", e);
-        return Err(e.into());
-    }
+    let r = registry::init_with_redis(&manager)
+        .await
+        .inspect_err(|e| tracing::error!("Failed to initialize provider registry: {}", e))?;
 
     // 启动服务器
-    server::start_server(redis_url).await
+    server::start_server(&manager, r).await
 }

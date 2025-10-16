@@ -5,30 +5,16 @@ use async_trait::async_trait;
 use cqupt_ics_core::{Result, cache::CacheBackend};
 
 /// Redis 缓存实现
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RedisCache {
-    connection: redis::aio::MultiplexedConnection,
+    connection: redis::aio::ConnectionManager,
     prefix: String,
 }
 
 impl RedisCache {
     /// 创建新的 Redis 缓存实例
-    pub async fn new(redis_url: &str, prefix: Option<String>) -> Result<Self> {
-        let client = redis::Client::open(redis_url).map_err(|e| {
-            cqupt_ics_core::Error::Config(format!("Failed to create Redis client: {}", e))
-        })?;
-
-        let connection = client
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| {
-                cqupt_ics_core::Error::Config(format!("Failed to connect to Redis: {}", e))
-            })?;
-
-        Ok(Self {
-            connection,
-            prefix: prefix.unwrap_or_else(|| "cqupt_ics".to_string()),
-        })
+    pub fn new(prefix: String, connection: redis::aio::ConnectionManager) -> Self {
+        Self { connection, prefix }
     }
 
     /// 构建带前缀的键

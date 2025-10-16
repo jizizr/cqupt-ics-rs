@@ -1,5 +1,3 @@
-use std::{sync::Arc, time::Duration as StdDuration};
-
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -12,10 +10,11 @@ use cqupt_ics_core::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::{fmt, time::Duration as StdDuration};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
-use crate::{cache::RedisCache, registry};
+use crate::cache::RedisCache;
 
 const DEFAULT_HOLIDAY_URL: &str = "https://calendars.icloud.com/holidays/cn_zh.ics";
 const HOLIDAY_CACHE_KEY: &str = "holiday:cn_zh";
@@ -24,9 +23,9 @@ const HOLIDAY_CACHE_TTL: StdDuration = StdDuration::from_secs(60 * 60 * 12);
 /// 应用状态
 #[derive(Clone)]
 pub struct AppState {
-    pub location_manager: Arc<LocationManager>,
-    pub http_client: Client,
-    pub holiday_cache: RedisCache,
+    pub location_manager: &'static LocationManager,
+    pub registry: &'static ProviderRegistry,
+    pub holiday_calendar: &'static HolidayCalendar,
 }
 
 /// 健康检查响应
@@ -51,20 +50,29 @@ struct GetCoursesQuery {
     password: String,
     start_date: Option<String>, // 格式：YYYY-MM-DD，如 2024-03-04，可选
     format: Option<String>,     // "json" or "ics"，默认为 "ics"
-    holiday_ics: Option<String>,
 }
 
-pub async fn create_app(redis_url: &str) -> Result<Router, cqupt_ics_core::Error> {
-    let location_manager = Arc::new(LocationManager::default());
+pub async fn create_app(
+    redis_manager: &redis::aio::ConnectionManager,
+    registry: cqupt_ics_core::prelude::ProviderRegistry,
+) -> Result<Router, AppError> {
+    let registry = registry.into_static();
+    let location_manager = LocationManager::new().into_static();
     let http_client = Client::builder()
         .user_agent("cqupt-ics-server/holiday-loader")
         .build()
         .expect("Failed to create HTTP client");
-    let holiday_cache = RedisCache::new(redis_url, Some("cqupt-ics".to_string())).await?;
-    let state = AppState {
+
+    let holiday_cache = RedisCache::new("cqupt-ics".to_string(), redis_manager.clone());
+
+    let holiday_calendar = load_holiday_calendar(http_client, &holiday_cache)
+        .await?
+        .into_static();
+
+    let state: AppState = AppState {
         location_manager,
-        http_client,
-        holiday_cache,
+        registry,
+        holiday_calendar,
     };
 
     let router = Router::new()
@@ -107,8 +115,10 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 /// 列出所有provider
-async fn list_providers_handler() -> impl IntoResponse {
-    let providers: Vec<_> = registry::list_providers()
+async fn list_providers_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let providers: Vec<_> = state
+        .registry
+        .list_providers()
         .map(|(name, description)| {
             serde_json::json!({
                 "name": name,
@@ -160,15 +170,20 @@ async fn get_courses_handler(
     };
 
     // 获取 provider
-    let provider = registry::get_provider(&params.provider).ok_or_else(|| {
-        cqupt_ics_core::Error::Config(format!("Provider '{}' not found", params.provider))
-    })?;
+    let provider = state
+        .registry
+        .get_provider(&params.provider)
+        .ok_or_else(|| {
+            AppError(cqupt_ics_core::Error::Config(format!(
+                "Unknown provider: {}",
+                params.provider
+            )))
+        })?;
 
     // 获取课程数据
     let mut response = provider.get_courses(&mut request).await?;
 
-    let calendar = load_holiday_calendar(&state, params.holiday_ics.as_ref()).await?;
-    calendar.apply_to_response(&mut response);
+    state.holiday_calendar.apply_to_response(&mut response);
 
     // 根据格式参数返回不同内容，默认为 ics
     match params.format.as_deref() {
@@ -198,23 +213,10 @@ async fn get_courses_handler(
 }
 
 async fn load_holiday_calendar(
-    state: &AppState,
-    holiday_path: Option<&String>,
+    client: Client,
+    holiday_cache: &RedisCache,
 ) -> Result<HolidayCalendar, AppError> {
-    if let Some(path) = holiday_path {
-        tracing::info!("加载节假日调休信息: {}", path);
-        return HolidayCalendar::from_path(path).map_err(AppError::from);
-    }
-
-    if let Ok(env_path) = std::env::var("HOLIDAY_ICS_PATH") {
-        let trimmed = env_path.trim();
-        if !trimmed.is_empty() {
-            tracing::info!("从环境变量加载节假日调休信息: {}", trimmed);
-            return HolidayCalendar::from_path(trimmed).map_err(AppError::from);
-        }
-    }
-
-    if let Some(bytes) = state.holiday_cache.get_raw(HOLIDAY_CACHE_KEY).await? {
+    if let Some(bytes) = holiday_cache.get_raw(HOLIDAY_CACHE_KEY).await? {
         tracing::debug!("命中节假日调休缓存");
         return HolidayCalendar::from_bytes(&bytes).map_err(AppError::from);
     }
@@ -227,7 +229,7 @@ async fn load_holiday_calendar(
 
     tracing::info!("使用节假日调休日历: {}", url);
 
-    let response = state.http_client.get(&url).send().await.map_err(|e| {
+    let response = client.get(&url).send().await.map_err(|e| {
         AppError(cqupt_ics_core::Error::Provider {
             provider: "holiday".to_string(),
             message: format!("请求节假日ICS失败: {}", e),
@@ -249,8 +251,7 @@ async fn load_holiday_calendar(
     })?;
     let data = bytes.to_vec();
 
-    state
-        .holiday_cache
+    holiday_cache
         .set_raw(HOLIDAY_CACHE_KEY, &data, HOLIDAY_CACHE_TTL)
         .await?;
 
@@ -259,7 +260,16 @@ async fn load_holiday_calendar(
 
 /// 应用错误类型
 #[derive(Debug)]
-struct AppError(cqupt_ics_core::Error);
+pub(crate) struct AppError(cqupt_ics_core::Error);
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // 复用内部错误的 Display
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for AppError {}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
