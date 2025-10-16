@@ -1,10 +1,9 @@
-use chrono::{DateTime, FixedOffset, Utc};
-use std::borrow::Cow;
-use uuid::Uuid;
-
 use crate::{
     Course, CourseResponse, Error, IcsOptions, RecurrenceRule, Result, location::LocationManager,
 };
+use chrono::{DateTime, FixedOffset, Utc};
+use std::borrow::Cow;
+use uuid::Uuid;
 
 /// ICS日历生成器
 pub struct IcsGenerator {
@@ -60,10 +59,11 @@ impl IcsGenerator {
                     course: course.clone(),
                     recurrence: None,
                 }
-            } else if let (Some(weeks), Some(weekday)) = (&course.weeks, course.weekday) {
+            } else if let (Some(weeks), Some(weekday)) = (&course.weeks, course.weekday)
+                && weeks.len() > 1
+            {
                 // 创建重复规则
-                let recurrence =
-                    self.create_recurrence_rule(Cow::Borrowed(weeks), weekday, &course.start_time)?;
+                let recurrence = self.create_recurrence_rule(weeks, weekday, &course.start_time)?;
 
                 CourseWithRecurrence {
                     course: course.clone(),
@@ -93,34 +93,25 @@ impl IcsGenerator {
     }
 
     /// 创建重复规则
-    fn create_recurrence_rule(
+    fn create_recurrence_rule<'a, W: Into<Cow<'a, [u32]>>>(
         &self,
-        mut weeks: Cow<[u32]>,
+        weeks: W,
         weekday: u32,
         start_time: &DateTime<FixedOffset>,
     ) -> Result<RecurrenceRule> {
-        if weeks.is_empty() {
-            return Err(Error::Config("Course has no week data".to_string()));
-        }
-        if !weeks.is_sorted() {
-            weeks.to_mut().sort();
-        }
-        // 计算学期结束时间（最后一周的课程结束时间）
+        let mut weeks = weeks.into();
+        let wp = weeks_pattern(&mut weeks)
+            .ok_or_else(|| Error::Config("Course has no week information".to_string()))?;
+        let weeks = wp.weeks;
         let last_week = *weeks.last().unwrap();
         let weeks_duration = chrono::Duration::weeks(last_week as i64 - 1);
         let until_end_time = *start_time + weeks_duration;
 
-        // 检查是否间隔n周
-        let is_continuous = weeks.len() > 1 && {
-            let gap = weeks[1] - weeks[0];
-            weeks.windows(2).all(|w| w[1] == w[0] + gap)
-        };
-
-        let (frequency, interval, count, until, exception_dates) = if is_continuous {
+        let (frequency, interval, count, until, exception_dates) = if let Some(gap) = wp.gap {
             // 连续周次，使用简单的WEEKLY重复
             (
                 "WEEKLY".to_string(),
-                weeks[1] - weeks[0],
+                gap,
                 None,
                 Some(until_end_time),
                 Vec::new(),
@@ -258,6 +249,9 @@ impl IcsGenerator {
         }
     }
 
+    pub fn format_weeks<'a, W: Into<Cow<'a, [u32]>>>(&self, weeks: W) -> Option<String> {
+        format_weeks(&mut weeks.into())
+    }
     /// 构建普通课程描述
     pub fn build_class_description(&self, course: &Course) -> String {
         let mut segments = Vec::new();
@@ -274,13 +268,20 @@ impl IcsGenerator {
             segments.push(format!("该课程是{}课", course_type));
         }
 
+        let mut week_str = None;
         if let (Some(week), Some(begin), Some(duration)) = (
-            course.raw_week.as_ref(),
+            course
+                .raw_week
+                .as_ref()
+                .or(course.weeks.as_ref().and_then(|weeks| {
+                    week_str = self.format_weeks(weeks);
+                    week_str.as_ref()
+                })),
             course.begin_lesson,
             course.lesson_duration,
         ) {
             segments.push(format!(
-                "在第{}{}-{}节行课",
+                "在第{} {}-{}节行课",
                 week,
                 begin,
                 begin + duration - 1
@@ -378,6 +379,64 @@ impl IcsGenerator {
 
         Ok(())
     }
+}
+
+struct WeeksPattern<'a> {
+    gap: Option<u32>,
+    weeks: &'a mut Cow<'a, [u32]>,
+}
+
+fn weeks_pattern<'a>(weeks: &'a mut Cow<'a, [u32]>) -> Option<WeeksPattern<'a>> {
+    if weeks.is_empty() {
+        return None;
+    }
+    if !weeks.is_sorted() {
+        weeks.to_mut().sort();
+    }
+
+    // 检查是否间隔n周
+    let is_continuous = weeks.len() > 1 && {
+        let gap = weeks[1] - weeks[0];
+        weeks.windows(2).all(|w| w[1] == w[0] + gap)
+    };
+    if is_continuous {
+        Some(WeeksPattern {
+            gap: Some(weeks[1] - weeks[0]),
+            weeks,
+        })
+    } else {
+        Some(WeeksPattern { gap: None, weeks })
+    }
+}
+
+fn format_weeks<'a>(weeks: &'a mut Cow<'a, [u32]>) -> Option<String> {
+    let wp = weeks_pattern(weeks)?;
+
+    let weeks = wp.weeks;
+    if let Some(gap) = wp.gap
+        && weeks.len() > 3
+    {
+        match gap {
+            1 => format!("{}-{}周", weeks[0], weeks[weeks.len() - 1]),
+            2 => format!(
+                "{}-{}周{}周",
+                weeks[0],
+                weeks[weeks.len() - 1],
+                if weeks[0] % 2 == 1 { "单" } else { "双" }
+            ),
+            _ => format!("{}-{}周每{}周", weeks[0], weeks[weeks.len() - 1], gap),
+        }
+    } else {
+        format!(
+            "{}周",
+            weeks
+                .iter()
+                .map(|w| w.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+    .into()
 }
 
 /// 带重复规则的课程
