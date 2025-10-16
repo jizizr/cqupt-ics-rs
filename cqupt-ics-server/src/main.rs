@@ -22,11 +22,12 @@ async fn main() -> Result<()> {
     // 获取Redis URL
     let redis_url = env::var("REDIS_URL")
         .map_err(|_| anyhow::anyhow!("REDIS_URL environment variable is required"))?;
-    let client = redis::Client::open(redis_url).expect("Invalid Redis URL");
-    let cfg = ConnectionManagerConfig::default().set_automatic_resubscription();
-    let manager = ConnectionManager::new_with_config(client, cfg)
-        .await
-        .expect("Init Redis Connection Manager failed");
+    let manager = ConnectionManager::new_with_config(
+        redis::Client::open(redis_url).expect("Invalid Redis URL"),
+        ConnectionManagerConfig::default(),
+    )
+    .await
+    .expect("Init Redis Connection Manager failed");
 
     // 初始化Provider注册表
     let r = registry::init_with_redis(&manager)
