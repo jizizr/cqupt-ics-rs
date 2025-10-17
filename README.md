@@ -110,7 +110,7 @@ tokio = { version = "1.0", features = ["full"] }
 | 数据源      | 标识符    | 说明                                             |
 | ----------- | --------- | ------------------------------------------------ |
 | Redrock API | `redrock` | 重庆邮电大学红岩网校开发的「掌上重邮」app 数据源 |
-
+| Wecqupt API | `wecqupt` | 重庆邮电大学「We 重邮」微信小程序数据源          |
 ## 配置选项
 
 ### ICS 生成选项
@@ -146,6 +146,72 @@ tokio = { version = "1.0", features = ["full"] }
 
 1. 在 `cqupt-ics-core/src/providers/` 创建新的 provider 文件
 2. 实现 `Provider` trait
+```rust
+#[async_trait]
+pub trait Provider: Send + Sync {
+    /// Token type for this provider
+    type Token: Send + Sync + Serialize + DeserializeOwned;
+    type ContextType: Send + Sync;
+    /// Provider 的名字
+    fn name(&self) -> &str;
+
+    /// Provider 的描述
+    fn description(&self) -> &str;
+
+    /// Get timezone for this provider
+    ///
+    /// Returns the timezone used by this provider for time calculations.
+    /// This is used to ensure consistent timezone handling across all
+    /// provider operations.
+    /// provider 的时区
+    fn timezone(&self) -> FixedOffset;
+
+    /// Authenticate and get token
+    /// 获取 token 的方法
+    async fn authenticate<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &CourseRequest,
+    ) -> Result<Self::Token>;
+
+    /// Validate existing token
+    /// 验证 token 是否有效
+    async fn validate_token(&self, token: &Self::Token) -> Result<bool>;
+
+    /// Refresh token
+    /// 刷新 token 的方法（如果 provider 不存在则直接返回 Err 即可）
+    async fn refresh_token(&self, token: &Self::Token) -> Result<Self::Token>;
+
+    /// Get courses using token
+    /// request.semester should be Some before calling this method
+    /// If use crate::providers::Wrapper, it will ensure semester is Some
+    /// 获取课程数据的方法
+    async fn get_courses<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &mut CourseRequest,
+        token: &Self::Token,
+    ) -> Result<CourseResponse>;
+
+    /// Get semester start date
+    /// This is called if request.semester is None before get_courses
+    /// If you use crate::providers::Wrapper, it will call this method automatically if request.semester is None
+    /// You can use the context to store intermediate data if needed
+    /// 获取学期开始日期的方法
+    async fn get_semester_start<'a, 'b>(
+        &'a self,
+        context: ParamContext<'b, Self::ContextType>,
+        request: &mut CourseRequest,
+        token: &Self::Token,
+    ) -> Result<chrono::DateTime<FixedOffset>>;
+
+    /// Token TTL
+    /// 返回 token 的有效期，用于控制缓存
+    fn token_ttl(&self) -> Duration {
+        Duration::from_secs(3600 * 24) // 24 hours default
+    }
+}
+```
 3. 在 `registry.rs` 中注册新的 provider
 
 ## 贡献指南
