@@ -141,7 +141,7 @@ impl RedrockProvider {
     pub fn new() -> Self {
         let mut base = BaseProviderBuilder::new(ProviderInfo {
             name: "redrock".to_string(),
-            description: "Redrock API".to_string(),
+            description: "掌上重邮 API".to_string(),
         });
         base.client_builder = base
             .client_builder

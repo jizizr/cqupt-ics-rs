@@ -76,7 +76,7 @@ pub async fn create_app(
     };
 
     let router = Router::new()
-        .route("/", get(root_handler))
+        .route("/api", get(root_handler))
         .route("/health", get(health_handler))
         .route("/courses", get(get_courses_handler))
         .route("/providers", get(list_providers_handler))
