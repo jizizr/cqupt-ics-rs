@@ -1,0 +1,643 @@
+:root {
+    color-scheme: light dark;
+    --color-primary: #6750a4;
+    --color-on-primary: #ffffff;
+    --color-primary-container: #eaddff;
+    --color-on-primary-container: #21005d;
+    --color-secondary: #625b71;
+    --color-surface: #fef7ff;
+    --color-surface-variant: #e7e0ec;
+    --color-on-surface: #1d1b20;
+    --color-outline: #79747e;
+    --color-error: #b3261e;
+    --color-on-error: #ffffff;
+    --radius-large: 22px;
+    --radius-medium: 18px;
+    --shadow-soft: 0 8px 24px rgba(21, 14, 90, 0.12);
+    --shadow-hard: 0 16px 32px rgba(21, 14, 90, 0.16);
+    font-size: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-primary: #d0bcff;
+        --color-on-primary: #381e72;
+        --color-primary-container: #4f378a;
+        --color-on-primary-container: #eaddff;
+        --color-secondary: #cbc2db;
+        --color-surface: #1d1b20;
+        --color-surface-variant: #49454f;
+        --color-on-surface: #e6e0e9;
+        --color-outline: #938f99;
+        --color-error: #f2b8b5;
+        --color-on-error: #601410;
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at top, rgba(103, 80, 164, 0.12), transparent 60%),
+        var(--color-surface);
+    color: var(--color-on-surface);
+    font-family: "Roboto", "Noto Sans SC", "PingFang SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+a {
+    color: inherit;
+}
+
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: clamp(1rem, 5vw, 2rem) clamp(1rem, 6vw, 3rem);
+    background: linear-gradient(135deg, rgba(103, 80, 164, 0.95), rgba(103, 80, 164, 0.75));
+    color: var(--color-on-primary);
+    box-shadow: var(--shadow-soft);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.brand__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.18);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.brand__text h1 {
+    margin: 0;
+    font-size: clamp(1.3rem, 3vw, 1.8rem);
+}
+
+.brand__text p {
+    margin: 0.2rem 0 0;
+    opacity: 0.9;
+    font-size: 0.95rem;
+}
+
+.brand__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.12);
+    color: inherit;
+    text-decoration: none;
+    font-weight: 500;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.brand__link:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.app-main {
+    width: min(960px, 100%);
+    margin: clamp(1.5rem, 4vw, 2.5rem) auto;
+    padding: 0 clamp(1rem, 5vw, 2rem) clamp(2rem, 5vw, 3rem);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1rem, 3vw, 1.75rem);
+}
+
+.card {
+    background: color-mix(in srgb, var(--color-surface) 92%, rgba(255, 255, 255, 0.92));
+    border-radius: var(--radius-large);
+    box-shadow: var(--shadow-soft);
+    padding: clamp(1.25rem, 4vw, 2rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    backdrop-filter: blur(10px);
+}
+
+.hero__content h2 {
+    margin: 0 0 0.3rem;
+    font-size: clamp(1.25rem, 3vw, 1.8rem);
+}
+
+.hero__content p {
+    margin: 0;
+    color: color-mix(in srgb, var(--color-on-surface) 80%, transparent);
+    line-height: 1.6;
+}
+
+code {
+    font-family: "JetBrains Mono", "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    padding: 0.15rem 0.4rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-primary-container) 40%, transparent);
+    color: var(--color-on-primary-container);
+}
+
+.hero__status {
+    position: relative;
+    min-height: 1px;
+}
+
+.toast-viewport {
+    position: fixed;
+    top: clamp(1rem, 4vw, 1.75rem);
+    right: clamp(1rem, 4vw, 2.5rem);
+    display: grid;
+    gap: 0.75rem;
+    width: min(380px, 90vw);
+    z-index: 2000;
+    pointer-events: none;
+}
+
+.toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-radius: var(--radius-medium);
+    padding: 0.85rem 1.1rem;
+    background: color-mix(in srgb, var(--color-surface) 88%, rgba(255, 255, 255, 0.95));
+    color: var(--color-on-surface);
+    box-shadow: var(--shadow-soft);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
+    backdrop-filter: blur(6px);
+    animation: toast-in 0.32s ease-out;
+    pointer-events: auto;
+}
+
+.toast--success {
+    border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.toast--error {
+    border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+}
+
+.toast__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.toast__close {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 999px;
+    transition: background 0.2s ease;
+}
+
+.toast__close:hover {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.toast__close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes toast-out {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form__section {
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.form__section legend,
+.form__section > summary {
+    font-weight: 600;
+    font-size: 1.05rem;
+    margin-bottom: 0.35rem;
+    color: color-mix(in srgb, var(--color-on-surface) 86%, transparent);
+}
+
+.form__section > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--color-primary-container) 24%, transparent);
+    color: var(--color-on-primary-container);
+    transition: background 0.2s ease;
+}
+
+.form__section > summary::marker,
+.form__section > summary::-webkit-details-marker {
+    display: none;
+}
+
+.form__section > summary:hover {
+    background: color-mix(in srgb, var(--color-primary-container) 32%, transparent);
+}
+
+.form__section[open] > summary {
+    margin-bottom: 1rem;
+    background: color-mix(in srgb, var(--color-primary-container) 36%, transparent);
+}
+
+.form__section.form__section--optional {
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--color-primary-container) 16%, transparent);
+    padding: 0.35rem 0.75rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+    box-shadow: 0 10px 20px rgba(62, 45, 120, 0.08);
+    position: relative;
+    overflow: hidden;
+}
+
+.form__section.form__section--optional > summary {
+    margin: 0.1rem 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: color-mix(in srgb, var(--color-on-primary-container) 94%, transparent);
+    transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.form__section.form__section--optional[open] > summary {
+    margin-bottom: 0.85rem;
+    background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+    color: var(--color-on-primary);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.form__section-body {
+    display: grid;
+    gap: 1rem;
+    padding: 0 0.4rem 0.25rem;
+}
+
+.form__section.form__section--optional .form__section-body {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: max-height 0.35s ease, opacity 0.25s ease, transform 0.3s ease;
+}
+
+.form__section.form__section--optional[open] .form__section-body {
+    max-height: 420px;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.form__section.form__section--optional > summary::before {
+    content: "";
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-primary) 38%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 18%, transparent);
+    transition: transform 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.form__section.form__section--optional[open] > summary::before {
+    transform: scale(1.15);
+    background: color-mix(in srgb, var(--color-on-primary) 85%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.form__section.form__section--optional > summary::after {
+    content: "▼";
+    font-size: 0.9rem;
+    opacity: 0.75;
+    margin-left: auto;
+    transition: transform 0.25s ease, color 0.25s ease;
+    color: color-mix(in srgb, var(--color-on-primary-container) 80%, transparent);
+}
+
+.form__section.form__section--optional[open] > summary::after {
+    transform: rotate(-180deg);
+    opacity: 0.9;
+    color: var(--color-on-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .form__section.form__section--optional .form__section-body,
+    .form__section.form__section--optional > summary::after {
+        transition: none;
+    }
+}
+
+.field {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.field label {
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: color-mix(in srgb, var(--color-on-surface) 94%, transparent);
+}
+
+input,
+select,
+textarea {
+    font: inherit;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--color-outline) 60%, transparent);
+    background: color-mix(in srgb, var(--color-surface) 95%, rgba(255, 255, 255, 0.9));
+    color: var(--color-on-surface);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.field__password {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.field__password input {
+    width: 100%;
+    padding-right: 3rem;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.6rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border: none;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    color: var(--color-primary);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.password-toggle:hover {
+    background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.password-toggle[data-visible="true"] {
+    background: color-mix(in srgb, var(--color-primary) 28%, transparent);
+    color: var(--color-on-primary);
+}
+
+.password-toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.password-toggle svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    pointer-events: none;
+}
+
+.field__support {
+    font-size: 0.85rem;
+    color: color-mix(in srgb, var(--color-on-surface) 70%, transparent);
+    margin: 0;
+}
+
+.field__description {
+    font-size: 0.9rem;
+    color: color-mix(in srgb, var(--color-secondary) 90%, transparent);
+    margin: 0;
+}
+
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-medium);
+    background: color-mix(in srgb, var(--color-primary-container) 26%, transparent);
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+.toggle input {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    accent-color: var(--color-primary);
+}
+
+.form__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.button {
+    border: none;
+    border-radius: 999px;
+    padding: 0.85rem 1.6rem;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+}
+
+.button--primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    box-shadow: var(--shadow-soft);
+}
+
+.button--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-hard);
+}
+
+.button--ghost {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+    color: var(--color-primary);
+}
+
+.button--ghost:hover {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.button--tonal {
+    background: var(--color-primary-container);
+    color: var(--color-on-primary-container);
+}
+
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    box-shadow: none;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+    color: var(--color-primary);
+}
+
+.chip--info {
+    background: color-mix(in srgb, var(--color-primary-container) 38%, transparent);
+    color: var(--color-on-primary-container);
+}
+
+.chip--outline {
+    border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+    background: transparent;
+    color: var(--color-primary);
+    padding: 0.45rem 1rem;
+}
+
+.result__header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.result__header h2 {
+    margin: 0;
+    font-size: clamp(1.2rem, 3vw, 1.5rem);
+}
+
+.result__link {
+    width: 100%;
+    min-height: 5rem;
+    resize: none;
+    font-family: "JetBrains Mono", "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    border: 1px dashed color-mix(in srgb, var(--color-outline) 70%, transparent);
+    background: color-mix(in srgb, var(--color-primary-container) 20%, transparent);
+    padding: 1rem;
+}
+
+.result__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.result__tips {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.4rem;
+    color: color-mix(in srgb, var(--color-on-surface) 72%, transparent);
+    font-size: 0.9rem;
+}
+
+.app-footer {
+    margin-top: auto;
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+    text-align: center;
+    font-size: 0.85rem;
+    color: color-mix(in srgb, var(--color-on-surface) 65%, transparent);
+}
+
+@media (max-width: 720px) {
+    :root {
+        font-size: 15px;
+    }
+
+    .app-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .brand__link {
+        align-self: stretch;
+        justify-content: center;
+    }
+
+    .card {
+        border-radius: 18px;
+    }
+
+    .form__actions,
+    .result__actions {
+        flex-direction: column;
+    }
+
+    .button {
+        width: 100%;
+    }
+}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CQUPT ICS 订阅助手</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body>
+    <div class="toast-viewport" id="toast-container" aria-live="polite" aria-atomic="true"></div>
+    <header class="app-header">
+        <div class="brand">
+            <span class="brand__badge">CQUPT</span>
+            <div class="brand__text">
+                <h1>CQUPT ICS 订阅助手</h1>
+                <p>在任意设备上同步你的课程表</p>
+            </div>
+        </div>
+        <a class="brand__link" href="https://github.com/jizizr/cqupt-ics-rs" target="_blank" rel="noopener">GitHub</a>
+    </header>
+
+    <main class="app-main">
+        <section class="card">
+            <form id="ics-form" class="form">
+                <fieldset class="form__section">
+                    <legend>数据源</legend>
+                    <div class="form__section-body">
+                        <div class="field">
+                            <label for="provider">Provider</label>
+                            <select id="provider" name="provider" required>
+                                <option value="">加载中…</option>
+                            </select>
+                            <p class="field__support">provider 描述会显示在下方，如遇异常可尝试切换其它 provider。</p>
+                            <p class="field__description" id="provider-description"></p>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form__section">
+                    <legend>账户信息</legend>
+                    <div class="form__section-body">
+                        <div class="field">
+                            <label for="username">账号</label>
+                            <input type="text" id="username" name="username" autocomplete="username" required>
+                        </div>
+                        <div class="field field--password">
+                            <label for="password">密码</label>
+                            <div class="field__password">
+                                <input type="password" id="password" name="password" autocomplete="current-password"
+                                    placeholder="请输入密码" required>
+                                <button type="button" id="toggle-password" class="password-toggle" aria-label="显示密码"
+                                    title="显示密码"></button>
+                            </div>
+                            <p class="field__support">仅用于实时向学校系统取数，服务端不做持久化。</p>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <details class="form__section form__section--optional" id="optional-settings">
+                    <summary>可选设置</summary>
+                    <div class="form__section-body">
+                        <div class="field">
+                            <label for="start-date">自定义学期开始日期</label>
+                            <input type="date" id="start-date" name="start-date">
+                            <p class="field__support">格式 YYYY-MM-DD，不填则使用自动推算时间。</p>
+                        </div>
+                        <div class="field">
+                            <label for="format">返回格式</label>
+                            <select id="format" name="format">
+                                <option value="ics" selected>iCalendar (.ics)</option>
+                                <option value="json">JSON（调试用途）</option>
+                            </select>
+                            <p class="field__support">订阅系统日历时请选择 iCalendar 格式。</p>
+                        </div>
+                </details>
+                <label class="toggle">
+                    <input type="checkbox" id="remember-settings" checked>
+                    <span>记住 provider / 账号 / 设置（仅保存在本地）</span>
+                </label>
+                <label class="toggle">
+                    <input type="checkbox" id="remember-password">
+                    <span>同时记住密码（公共设备请勿勾选）</span>
+                </label>
+                </div>
+                <div class="form__actions">
+                    <button type="submit" class="button button--primary">生成订阅链接</button>
+                    <button type="reset" class="button button--ghost" id="clear-form">清除</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="card result" id="result-card" hidden>
+            <header class="result__header">
+                <h2>订阅链接已生成</h2>
+                <span class="chip chip--info" id="format-hint">iCalendar 订阅可直接导入</span>
+            </header>
+            <textarea id="ics-link" class="result__link" readonly spellcheck="false"></textarea>
+            <div class="result__actions">
+                <button type="button" class="button button--tonal" id="copy-link">复制链接</button>
+                <button type="button" class="button button--primary" id="import-calendar">导入系统日历</button>
+                <button type="button" class="button button--ghost" id="open-generic">直接访问</button>
+            </div>
+            <ul class="result__tips" id="result-hints">
+                <li>iOS 会自动尝试通过 webcal:// 打开日历，若未弹窗，可在「设置 › 邮件 › 帐号 › 添加已订阅的日历」中粘贴链接。</li>
+                <li>Android 将尝试 intent:// 协议，若设备不支持，可手动复制链接到系统日历或 Google 日历中。</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        CQUPT ICS Server © <span id="current-year"></span> · 问题反馈请前往 GitHub issue。
+    </footer>
+
+    <script type="module" src="/static/app.js"></script>
+</body>
+
+</html>
