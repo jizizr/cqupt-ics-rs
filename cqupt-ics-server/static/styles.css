@@ -79,8 +79,12 @@ a {
     height: 3.25rem;
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.18);
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    overflow: hidden;
+}
+
+.brand__icon {
+    width: 100%;
+    height: 100%;
 }
 
 .brand__text h1 {

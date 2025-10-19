@@ -36,6 +36,40 @@ const EyeOffIcon = `
     </svg>
 `;
 
+const detectPlatform = () => {
+    const uaDataPlatform = navigator.userAgentData?.platform || navigator.platform || "";
+    const ua = (navigator.userAgent || navigator.vendor || window.opera || "").toLowerCase();
+
+    const check = (pattern) => pattern.test(ua);
+    const platform = uaDataPlatform.toLowerCase();
+
+    if (check(/android/)) {
+        return { platform: "android", label: "Android" };
+    }
+
+    if (check(/iphone|ipad|ipod/)) {
+        return { platform: "apple", label: "iOS" };
+    }
+
+    if (check(/macintosh|mac os x/) || platform.includes("mac")) {
+        return { platform: "apple", label: "macOS" };
+    }
+
+    if (check(/windows/)) {
+        return { platform: "windows", label: "Windows" };
+    }
+
+    if (check(/cros/)) {
+        return { platform: "chromeos", label: "ChromeOS" };
+    }
+
+    if (check(/linux/)) {
+        return { platform: "linux", label: "Linux" };
+    }
+
+    return { platform: "unknown", label: uaDataPlatform || "当前系统" };
+};
+
 currentYear.textContent = new Date().getFullYear();
 
 const showToast = (message, tone = "info", options = {}) => {
@@ -634,22 +668,59 @@ importButton.addEventListener("click", () => {
         return;
     }
 
+    const { platform, label } = detectPlatform();
+
     const openIntent = () => {
         if (result.android) {
             window.location.href = result.android;
+            return true;
         }
+        return false;
     };
 
-    if (result.apple) {
-        window.location.href = result.apple;
-        setTimeout(() => {
-            if (document.visibilityState === "visible") {
-                openIntent();
-            }
-        }, 1200);
-    } else {
-        openIntent();
+    const openWebcal = () => {
+        if (result.apple) {
+            window.location.href = result.apple;
+            return true;
+        }
+        return false;
+    };
+
+    const promptManualImport = (systemLabel) => {
+        showToast(`暂不支持 ${systemLabel} 的一键导入，请复制订阅链接后在日历应用中手动添加。`, "info", {
+            ttl: 7000,
+        });
+        linkBox.focus();
+        linkBox.select();
+    };
+
+    if (platform === "android") {
+        if (!openIntent()) {
+            promptManualImport(label || "Android");
+        } else {
+            setTimeout(() => {
+                if (document.visibilityState === "visible") {
+                    promptManualImport(label || "Android");
+                }
+            }, 1200);
+        }
+        return;
     }
+
+    if (platform === "apple") {
+        if (!openWebcal()) {
+            promptManualImport(label || "Apple");
+        } else {
+            setTimeout(() => {
+                if (document.visibilityState === "visible") {
+                    promptManualImport(label || "Apple");
+                }
+            }, 1200);
+        }
+        return;
+    }
+
+    promptManualImport(label || "当前系统");
 });
 
 genericButton.addEventListener("click", () => {
