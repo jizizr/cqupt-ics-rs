@@ -18,7 +18,7 @@ use crate::cache::RedisCache;
 
 const DEFAULT_HOLIDAY_URL: &str = "https://calendars.icloud.com/holidays/cn_zh.ics";
 const HOLIDAY_CACHE_KEY: &str = "holiday:cn_zh";
-const HOLIDAY_CACHE_TTL: StdDuration = StdDuration::from_secs(60 * 60 * 12);
+const HOLIDAY_CACHE_TTL: StdDuration = StdDuration::from_secs(60 * 60 * 24 * 30);
 
 /// 应用状态
 #[derive(Clone)]
@@ -254,7 +254,6 @@ async fn load_holiday_calendar(
     holiday_cache
         .set_raw(HOLIDAY_CACHE_KEY, &data, HOLIDAY_CACHE_TTL)
         .await?;
-
     HolidayCalendar::from_bytes(&data).map_err(AppError::from)
 }
 
