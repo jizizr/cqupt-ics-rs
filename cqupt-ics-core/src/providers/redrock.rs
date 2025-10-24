@@ -7,6 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 const LESSON_TIMES: [(usize, usize); 12] = [
@@ -268,9 +269,13 @@ impl RedrockProvider {
             .map_err(|e| self.base.handle_error_req(e))?;
 
         if !response.status().is_success() {
-            return Err(self
-                .base
-                .custom_error(format!("HTTP {} error", response.status())));
+            if response.status() == StatusCode::INTERNAL_SERVER_ERROR {
+                return Err(crate::Error::CurfewTime(()));
+            } else {
+                return Err(self
+                    .base
+                    .custom_error(format!("HTTP {} error", response.status())));
+            }
         }
 
         response.json().await.map_err(|e| {
@@ -693,6 +698,9 @@ impl Provider for RedrockProvider {
             .send()
             .await
             .map_err(|e| self.base.handle_error_req(e))?;
+        if response.status() == StatusCode::BAD_REQUEST {
+            return Err(crate::Error::Authentication("密码错误".to_string()));
+        }
         if response.status() != reqwest::StatusCode::OK {
             return Err(self
                 .base

@@ -7,7 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
-use reqwest::{Url, header};
+use reqwest::{StatusCode, Url, header};
 use rsa::{Pkcs1v15Encrypt, RsaPublicKey, pkcs8::DecodePublicKey as _, rand_core::OsRng};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
@@ -354,6 +354,12 @@ impl WecquptProvider {
             .await
             .map_err(|e| self.base.handle_error_req(e))?;
 
+        if response.status() != StatusCode::FORBIDDEN
+            && response.url().path() == "/rump_frontend/access_forbidden/"
+        {
+            return Err(crate::Error::CurfewTime(()));
+        }
+
         if !response.status().is_success() {
             return Err(self
                 .base
@@ -523,7 +529,8 @@ impl Provider for WecquptProvider {
         request: &CourseRequest,
     ) -> Result<Self::Token> {
         let mut token = Self::Token::default();
-        for ck in self
+
+        let response = self
             .base
             .client
             .post(self.base_url.join("login").unwrap())
@@ -534,10 +541,20 @@ impl Provider for WecquptProvider {
                 verification_code: None,
             })
             .send()
-            .await?
-            .headers()
-            .get_all(header::SET_COOKIE)
+            .await?;
+        if response.status() == StatusCode::FORBIDDEN
+            && response.url().path() == "/rump_frontend/access_forbidden/"
         {
+            return Err(crate::Error::CurfewTime(()));
+        }
+
+        if !response.status().is_success() {
+            return Err(self
+                .base
+                .custom_error(format!("HTTP {} error", response.status())));
+        }
+
+        for ck in response.headers().get_all(header::SET_COOKIE) {
             let ck = ck.to_str().map_err(|e| {
                 self.base
                     .custom_error(format!("Failed to parse Set-Cookie header: {}", e))

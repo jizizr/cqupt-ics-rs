@@ -301,9 +301,14 @@ impl<P: Provider + 'static, C: CacheBackend + 'static> ProviderWrapper for Wrapp
     async fn get_courses(&self, request: &mut CourseRequest) -> Result<CourseResponse> {
         match self.get_courses_once(request).await {
             Ok(courses) => Ok(courses),
-            Err(_) => {
-                // On error, clear the token cache and retry once
-                self.logout(request).await?;
+            Err(e) => {
+                // On Auth error, clear the token cache and retry once
+                if matches!(
+                    e,
+                    crate::Error::Authentication(_) | crate::Error::Provider { .. }
+                ) {
+                    self.logout(request).await?;
+                }
                 self.get_courses_once(request).await
             }
         }

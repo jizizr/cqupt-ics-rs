@@ -32,6 +32,9 @@ pub enum Error {
     #[error("RSA Error: {0}")]
     Rsa(#[from] rsa::errors::Error),
 
+    #[error("学校网络宵禁时间")]
+    CurfewTime(()),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
