@@ -109,8 +109,9 @@ impl IcsGenerator {
         let wp = weeks_pattern(&mut weeks)
             .ok_or_else(|| Error::Config("Course has no week information".to_string()))?;
         let weeks = wp.weeks;
+        let first_week = *weeks.first().unwrap();
         let last_week = *weeks.last().unwrap();
-        let weeks_duration = chrono::Duration::weeks(last_week as i64 - 1);
+        let weeks_duration = chrono::Duration::weeks((last_week - first_week) as i64);
         let until_end_time = *start_time + weeks_duration;
         let mut exceptions = Vec::new();
         if let Some(off_weeks) = off_weeks {
